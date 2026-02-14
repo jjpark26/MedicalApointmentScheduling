@@ -1,0 +1,2950 @@
+---
+title: "Medical appointment scheduling system"
+author: "Jaehui Park"
+date: "2026-02-14"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+
+
+```{r setup, include=FALSE}
+# Global chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  include = TRUE,
+  message = FALSE, 
+  warning = FALSE
+)
+```
+
+
+
+
+
+Library
+```{r Library}
+library(tidyverse)
+
+library(readr)
+
+#install.packages("psych")
+library(psych)
+
+library(dplyr)
+
+library(lubridate)
+
+library(RColorBrewer)
+
+library(scales)
+
+```
+
+
+
+
+
+
+1. Data 
+
+Data Loading
+```{r Data Loading}
+
+slots <- read_csv("C:/Users/Jaehui Park/Desktop/Portfolio/1) Data/1) Medical Appointment Scheduling system/slots.csv")
+
+patients <- read_csv("C:/Users/Jaehui Park/Desktop/Portfolio/1) Data/1) Medical Appointment Scheduling system/patients.csv")
+
+
+appointments <- read_csv("C:/Users/Jaehui Park/Desktop/Portfolio/1) Data/1) Medical Appointment Scheduling system/appointments.csv")
+
+```
+
+Data quality check: Primary Key Uniqueness
+```{r Data Quality Check}
+## Data Quality Check: Primary Key Uniqueness
+
+# Verify uniqueness of primary keys in core tables
+nrow(appointments) == n_distinct(appointments$appointment_id)
+nrow(slots) == n_distinct(slots$slot_id)
+nrow(patients) == n_distinct(patients$patient_id)
+
+```
+Foreign key integrity
+```{r Foreign Key Integrity}
+## Data Quality Check: Foreign Key Integrity
+
+# Identify orphan records in Appointments without matching Patients
+orphan_appointments <- anti_join(
+  x = appointments,
+  y = patients,
+  by = "patient_id"
+)
+
+nrow(orphan_appointments)
+
+```
+No orphan records were found, confirming referential integrity between Appointments and Patients.
+
+
+```{r Data Quality Check: Double check}
+## Data Quality Check: Foreign Key Integrity
+
+orphan_slots <- anti_join(
+  x = appointments,
+  y = slots,
+  by = "slot_id"
+)
+
+nrow(orphan_slots)
+
+```
+
+No orphan records were found, confirming referential integrity between Appointments and Slots.
+
+
+
+
+```{r}
+## Exploratory Check: Appointment Status Values
+
+unique(appointments$status)
+
+```
+The appointment status field contains a limited set of categorical values, which can be used for segmentation and outcome-based analysis.
+
+
+```{r Visualize Appointment Status Counts}
+
+appointments %>%
+  count(status) %>%
+  ggplot(aes(x = reorder(status, n), y = n, fill = status)) +
+  geom_col() +
+  geom_text(aes(label = n), hjust = -0.2, size = 4) +
+  coord_flip() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(title = "Appointment Status Distribution", x = "Status", y = "Count") +
+  theme_minimal()
+
+```
+
+The distribution of appointment statuses highlights the number of cancelled and no-show appointments, which can inform follow-up strategies and operational planning.
+
+
+
+
+```{r}
+## Data Quality Check: Missing Values
+
+check_na <- function(df, table_name) {
+  cat("\n--- [", table_name, "] Missing Values ---\n")
+  colSums(is.na(df)) %>% print()
+}
+
+# Apply to core tables
+check_na(slots, "Slots")
+check_na(patients, "Patients")
+check_na(appointments, "Appointments")
+
+```
+Missing values were checked across key tables to ensure data completeness for analysis.
+
+
+
+
+```{r}
+#Create a master dataset by joining appointment, patient, and slot data
+full_dataset <- appointments %>%
+  # Join patient-level information using patient_id
+  left_join(patients, by = "patient_id", suffix = c("", "_pat")) %>%
+  # Join slot-level information using slot_id
+  left_join(slots, by = "slot_id", suffix = c("", "_slot"))
+
+# Preview the structure of the combined dataset
+glimpse(full_dataset)
+
+```
+
+
+```{r}
+# Validate that the row count remains consistent after joining
+# The result should be TRUE
+nrow(appointments) == nrow(full_dataset)
+
+# Display row counts before and after the join for verification
+cat("Number of appointments:", nrow(appointments), "\n")
+cat("Number of rows after join:", nrow(full_dataset), "\n")
+
+```
+
+```{r}
+# Check for missing values introduced after the joins
+full_dataset %>%
+  summarise(
+    missing_names = sum(is.na(name)),        # Unmatched patient records
+    missing_slots = sum(is.na(is_available)) # Unmatched slot records
+  )
+
+```
+
+```{r}
+# Create a validation summary to review the join results
+join_validation <- data.frame(
+  Table = c("Appointments (Original)", "Final Dataset"),
+  Row_Count = c(nrow(appointments), nrow(full_dataset)),
+  Col_Count = c(ncol(appointments), ncol(full_dataset))
+)
+
+print(join_validation)
+
+# A mismatch in row count may indicate an issue with the join logic
+
+```
+
+```{r}
+# List all column names in the final merged dataset
+colnames(full_dataset)
+
+
+```
+
+```{r}
+# Identify new columns added to the dataset after the joins
+setdiff(colnames(full_dataset), colnames(appointments))
+
+```
+
+
+```{r}
+# 1. Check if 'sex' columns match between original and joined data
+sex_match <- all(full_dataset$sex == full_dataset$sex_pat, na.rm = TRUE)
+cat("Do the sex columns match?", sex_match, "\n")
+
+# 2. Check if 'appointment_date' columns match
+date_match <- all(full_dataset$appointment_date == full_dataset$appointment_date_slot, na.rm = TRUE)
+cat("Do the appointment_date columns match?", date_match, "\n")
+
+# 3. Check if 'appointment_time' columns match
+time_match <- all(full_dataset$appointment_time == full_dataset$appointment_time_slot, na.rm = TRUE)
+cat("Do the appointment_time columns match?", time_match, "\n")
+
+```
+
+```{r}
+# Remove duplicate columns after confirming they match the original columns
+full_dataset <- full_dataset %>%
+  select(-sex_pat, -appointment_date_slot, -appointment_time_slot)
+
+# Check the final set of columns in the cleaned dataset
+colnames(full_dataset)
+
+```
+
+
+
+
+```{r}
+# 1. Set the reference date (December 1, 2024)
+ref_date <- as.Date("2024-12-01")
+
+# 2. Past appointments (before the reference date)
+# Used for analyzing actual visits, cancellations, and no-shows
+past_appointments <- full_dataset %>%
+  filter(appointment_date < ref_date)
+
+# 3. Future appointments (on or after the reference date)
+# Used for forecasting hospital utilization or appointment fulfillment
+future_appointments <- full_dataset %>%
+  filter(appointment_date >= ref_date)
+
+# 4. Verify the data split
+cat("Total rows in full dataset:", nrow(full_dataset), "\n")
+cat("Rows in past appointments (analysis):", nrow(past_appointments), "\n")
+cat("Rows in future appointments (forecasting):", nrow(future_appointments), "\n")
+
+```
+
+
+```{r}
+# Inspect the structure of past appointments
+str(past_appointments)
+
+```
+
+
+
+
+
+```{r}
+# Identify status values present in the full dataset but missing in past appointments
+setdiff(unique(full_dataset$status), unique(past_appointments$status))
+
+```
+
+
+
+Check unique values for each relevant column
+```{r}
+unique(past_appointments$status)
+```
+
+```{r}
+unique(past_appointments$sex)
+```
+
+```{r}
+unique(past_appointments$age_group)
+```
+
+```{r}
+unique(past_appointments$insurance)
+```
+
+
+```{r}
+# 1. Define the correct order for age groups
+# Ensures that plots and analyses follow age sequence
+age_levels <- c("15-19", "20-24", "25-29", "30-34", "35-39", "40-44", 
+                "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", 
+                "75-79", "80-84", "85-89", "90+")
+
+# 2. Convert relevant columns to factors
+past_appointments <- past_appointments %>%
+  mutate(
+    # Status: 4 known categories
+    status = factor(status, levels = c("attended", "did not attend", "cancelled", "unknown")),
+    
+    # Sex: Male / Female
+    sex = factor(sex, levels = c("Male", "Female")),
+    
+    # Age Group: ordered according to age_levels
+    age_group = factor(age_group, levels = age_levels),
+    
+    # Insurance: convert to factor
+    insurance = as.factor(insurance)
+  )
+
+# 3. Verify the conversion
+summary(past_appointments %>% select(status, sex, age_group, insurance))
+
+```
+
+
+Analysis
+
+```{r no_show_rate_timebase}
+# Analysis: No-show patterns affecting hospital revenue
+# Focus: Cancellation patterns by appointment hour
+
+# 1. Aggregate 'did not attend' counts by hour
+no_show_counts <- past_appointments %>%
+  mutate(hour = hour(appointment_time)) %>%
+  filter(status == "did not attend") %>% 
+  group_by(hour) %>%
+  summarise(no_show_count = n(), .groups = 'drop')
+
+# 2. Visualize no-show counts by appointment hour
+ggplot(no_show_counts, aes(x = factor(hour), y = no_show_count)) +
+  geom_col(fill = "#E41A1C", alpha = 0.8) +  # Red bars to highlight no-shows
+  geom_text(aes(label = no_show_count), 
+            vjust = -0.5, 
+            size = 4, fontface = "bold") +  # Display counts above bars
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +  # Add 20% space above bars
+  labs(title = "No-show Cases by Appointment Hour",
+       subtitle = "Counts of patients who did not attend without notice",
+       x = "Appointment Hour", 
+       y = "Number of No-show Cases") +
+  theme_minimal()
+
+```
+
+
+
+
+```{r noshow_rate wday}
+# Add day of the week for each appointment
+# This will be used to analyze no-show patterns by weekday
+past_appointments <- past_appointments %>%
+  mutate(
+    day_of_week = wday(appointment_date, 
+                       label = TRUE, 
+                       abbr = FALSE,
+                       week_start = 1)  # Week starts on Monday
+  )
+
+```
+
+```{r}
+# 1. Aggregate 'did not attend' counts by day of the week
+no_show_by_day <- past_appointments %>%
+  filter(status == "did not attend") %>% 
+  group_by(day_of_week) %>%
+  summarise(no_show_count = n(), .groups = 'drop')
+
+# 2. Visualize no-show counts by weekday
+ggplot(no_show_by_day, aes(x = day_of_week, y = no_show_count)) +
+  geom_col(fill = "#E41A1C", alpha = 0.8, width = 0.7) +  # Red bars for no-shows
+  geom_text(aes(label = scales::comma(no_show_count)), 
+            vjust = -1.0, size = 5, fontface = "bold") +  # Display counts above bars
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +  # Add 20% space above bars
+  labs(title = "No-show Cases by Weekday",
+       x = "Day of the Week", 
+       y = "Number of No-show Cases") +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(face = "bold", color = "black"),
+    plot.title = element_text(face = "bold", size = 18)
+  )
+
+```
+
+
+The dataset shows a total of over 6,500 missed appointments across all weekdays over 10 years, representing a critical area for operational improvement and revenue recovery.
+
+
+
+```{r noshow_rate-seasonal}
+# 1. Create season variable based on appointment month
+past_appointments <- past_appointments %>%
+  mutate(
+    month = month(appointment_date),
+    season = case_when(
+      month %in% c(3, 4, 5) ~ "Spring",
+      month %in% c(6, 7, 8) ~ "Summer",
+      month %in% c(9, 10, 11) ~ "Autumn",
+      TRUE ~ "Winter"
+    ),
+    season = factor(season, levels = c("Spring", "Summer", "Autumn", "Winter"))
+  )
+
+# 2. Summarize seasonal no-show statistics
+season_final_analysis <- past_appointments %>%
+  group_by(season) %>%
+  summarise(
+    total_days = n_distinct(appointment_date),
+    total_count = n(),
+    noshow_count = sum(status == "did not attend"),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    rate = (noshow_count / total_count) * 100,     # No-show rate (%)
+    avg_noshow = noshow_count / total_days         # Average no-show per day
+  )
+
+# 3. Visualize seasonal no-show patterns
+ggplot(season_final_analysis, aes(x = season, y = rate, fill = season)) +
+  geom_col(alpha = 0.8, width = 0.6) +
+  
+  # Top layer: No-show rate
+  geom_text(aes(label = sprintf("%.1f%%", rate)), 
+            vjust = -1.2, size = 5.5, fontface = "bold") +
+  
+  # Middle layer: Total no-shows / Total appointments
+  geom_text(aes(label = paste0(format(noshow_count, big.mark=","), 
+                               "\n———\n", 
+                               format(total_count, big.mark=","))), 
+            vjust = 2.5, size = 3.5, lineheight = 0.75) +
+  
+  # Bottom layer: Daily average no-shows
+  geom_text(aes(label = paste0("(Avg ", sprintf("%.1f", avg_noshow), " no-shows/day)")), 
+            vjust = 12, size = 3.2, fontface = "italic", color = "grey20") +
+  
+  scale_fill_manual(values = RColorBrewer::brewer.pal(4, "Set2")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.6))) +  # Add top margin for text
+  labs(title = "Seasonal No-show Analysis",
+       subtitle = "Top: No-show rate / Middle: No-show count / Bottom: Avg daily no-shows",
+       x = "Season", y = "No-show Rate (%)") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold"))
+
+```
+
+
+```{r noshow_rate-seasonal2}
+# 1. Create a binary flag for no-shows (1: did not attend, 0: others)
+past_appointments <- past_appointments %>%
+  mutate(no_show_flag = ifelse(status == "did not attend", 1, 0))
+
+# 2. Create contingency table: Season × Status
+table_season_status <- table(past_appointments$season, past_appointments$status)
+print(table_season_status)
+
+# 3. Chi-squared test of independence
+# H0: Season and appointment status are independent
+# H1: Season and appointment status are not independent
+chisq_result <- chisq.test(table_season_status)
+print(chisq_result)
+
+# 4. Extract counts for 'did not attend' and total appointments by season
+no_show_counts <- as.numeric(table_season_status[,"did not attend"])
+total_counts <- rowSums(table_season_status)
+
+# 5. Proportion test to compare no-show rates across seasons
+# H0: No-show rates are equal across all seasons
+# H1: At least one season has a different no-show rate
+prop_test_result <- prop.test(no_show_counts, total_counts)
+print(prop_test_result)
+
+
+```
+
+
+
+
+
+```{r noshow_rate-season+time}
+# 1. Prepare data: season, hour, and no-show rate
+seasonal_hour_noshow <- past_appointments %>%
+  mutate(
+    month = month(appointment_date),
+    hour = hour(appointment_time),
+    season = case_when(
+      month %in% c(3, 4, 5) ~ "Spring",
+      month %in% c(6, 7, 8) ~ "Summer",
+      month %in% c(9, 10, 11) ~ "Autumn",
+      TRUE ~ "Winter"
+    ),
+    season = factor(season, levels = c("Spring", "Summer", "Autumn", "Winter"))
+  ) %>%
+  group_by(season, hour, status) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(season, hour) %>%
+  mutate(rate = (count / sum(count)) * 100) %>%
+  # Keep only 'did not attend' (true no-shows)
+  filter(status == "did not attend")
+
+# 2. Visualize with a heatmap: season vs hour
+ggplot(seasonal_hour_noshow, aes(x = factor(hour), y = season, fill = rate)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = count), size = 3, fontface = "bold") +  # Display actual no-show counts
+  scale_fill_gradient(low = "#FFF5F5", high = "#E41A1C") +     # Darker red = higher no-show rate
+  labs(title = "No-show Analysis by Season and Hour",
+       subtitle = "Darker color indicates higher % of patients who did not attend\nNumbers show actual no-show counts",
+       x = "Appointment Hour", 
+       y = "Season", 
+       fill = "No-show Rate (%)") +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(face = "bold", size = 11),
+    plot.title = element_text(face = "bold", size = 14),
+    panel.grid = element_blank()
+  )
+
+```
+
+
+
+요일 + 시간 합쳐서 "did not attend" 비율분석
+```{r didnot_attend-wday+time}
+# 1. Create dataset: No-show rate by day of the week and hour
+noshow_heatmap_data <- past_appointments %>%
+  mutate(
+    hour = hour(appointment_time),
+    day_of_week = factor(day_of_week, 
+                         levels = c("Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"))
+  ) %>%
+  group_by(day_of_week, hour) %>%
+  summarise(
+    total_appts = n(),
+    noshow_count = sum(status == "did not attend"),
+    noshow_rate = (noshow_count / total_appts) * 100,
+    .groups = 'drop'
+  )
+
+# 2. Visualize with a heatmap: Day of week × Hour
+ggplot(noshow_heatmap_data, aes(x = day_of_week, y = factor(hour), fill = noshow_rate)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "#ff4d4d") +  # Darker red = higher no-show rate
+  geom_text(aes(label = noshow_count), size = 3, fontface = "bold") +  # Display actual no-show counts
+  labs(title = "No-show Heatmap by Day of Week and Hour",
+       subtitle = "Color indicates no-show rate (%) and numbers show actual no-show counts",
+       x = "Day of the Week", 
+       y = "Appointment Hour", 
+       fill = "No-show Rate (%)") +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(face = "bold", size = 10),
+    plot.title = element_text(face = "bold", size = 14)
+  )
+
+```
+
+
+
+```{r noshow_rate-age_group}
+# 1. Aggregate no-show data by age group
+age_noshow_analysis <- past_appointments %>%
+  # Keep only 'did not attend' data for analysis
+  group_by(age_group, status) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(age_group) %>%
+  # Calculate no-show rate (%) within each age group
+  mutate(noshow_rate = (count / sum(count)) * 100) %>%
+  filter(status == "did not attend")
+
+# 2. Visualize with a bar chart
+ggplot(age_noshow_analysis, aes(x = age_group, y = noshow_rate, fill = age_group)) +
+  geom_col(alpha = 0.8, width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", noshow_rate)), 
+            vjust = -0.5, size = 4, fontface = "bold") +
+  scale_fill_viridis_d(option = "plasma") +  # Discrete color scale for age groups
+  scale_y_continuous(limits = c(0, max(age_noshow_analysis$noshow_rate) * 1.2)) +
+  labs(title = "No-show Rate by Age Group",
+       subtitle = "Identifying age groups with the highest appointment non-attendance",
+       x = "Age Group", 
+       y = "No-show Rate (%)") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(size = 10, face = "bold", angle = 45, hjust = 1),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+```
+
+
+```{r noshow_rate-schedule_interval}
+# 1. Prepare data: categorize scheduling interval into 5-day groups
+interval_analysis <- past_appointments %>%
+  mutate(interval_group = cut(
+    scheduling_interval, 
+    breaks = seq(0, 30, by = 5),        # 0-5, 6-10, ...
+    include.lowest = TRUE,
+    labels = c("0-5 days", "6-10 days", "11-15 days", "16-20 days", "21-25 days", "26-30 days")
+  )) %>%
+  group_by(interval_group, status) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(interval_group) %>%
+  # Calculate no-show rate (%) within each interval group
+  mutate(noshow_rate = (count / sum(count)) * 100) %>%
+  filter(status == "did not attend")
+
+# 2. Visualize with line chart + points
+ggplot(interval_analysis, aes(x = interval_group, y = noshow_rate, group = 1)) +
+  geom_line(color = "#2A9D8F", size = 1.2) +
+  geom_point(color = "#264653", size = 3) +
+  geom_text(aes(label = paste0(count, " patients\n(", sprintf("%.1f%%", noshow_rate), ")")),
+            vjust = -1, fontface = "bold", color = "#264653") +
+  scale_y_continuous(limits = c(0, max(interval_analysis$noshow_rate) * 1.3)) +
+  labs(title = "No-show Rate by Scheduling Interval",
+       subtitle = "Does patient attendance decrease as the gap between booking and appointment increases?",
+       x = "Days Between Booking and Appointment",
+       y = "No-show Rate (%)") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 11),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+```
+
+
+```{r noshow_rate-schedule_interval_ver.2}
+# 1. Prepare data: categorize scheduling interval into 5-day groups
+interval_analysis <- past_appointments %>%
+  mutate(
+    interval_group = cut(
+      scheduling_interval, 
+      breaks = seq(0, 30, by = 5),        # 0-5, 6-10, ...
+      include.lowest = TRUE,
+      labels = c("0-5 days", "6-10 days", "11-15 days", "16-20 days", "21-25 days", "26-30 days")
+    )
+  ) %>%
+  group_by(interval_group) %>%
+  summarise(
+    total_appts = n(),                       # Total appointments per interval
+    noshow_count = sum(status == "did not attend"),
+    noshow_rate = (noshow_count / total_appts) * 100,
+    .groups = 'drop'
+  )
+
+# 2. Visualize with bar chart
+ggplot(interval_analysis, aes(x = interval_group, y = noshow_rate, group = 1)) +
+  geom_col(fill = "#2A9D8F", alpha = 0.8, width = 0.6) +
+  geom_text(aes(label = paste0(sprintf("%.1f%%", noshow_rate), 
+                               "\n(", noshow_count, "/", total_appts, ")")),
+            vjust = -0.5, fontface = "bold", size = 4) +
+  scale_y_continuous(limits = c(0, max(interval_analysis$noshow_rate) * 1.3)) +
+  labs(title = "No-show Rate by Scheduling Interval",
+       subtitle = "Shows percentage and actual no-show count within each interval group",
+       x = "Days Between Booking and Appointment",
+       y = "No-show Rate (%)") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 11),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+```
+
+
+```{r noshow_history}
+# 1. Calculate each patient's past no-show history
+past_appointments <- past_appointments %>%
+  arrange(patient_id, appointment_date, appointment_time) %>%   # Sort by patient & time
+  group_by(patient_id) %>%
+  mutate(
+    # Create flag: 1 if 'did not attend', else 0
+    is_noshow = if_else(status == "did not attend", 1, 0),
+    # Cumulative past no-show count (exclude current appointment)
+    past_no_show_count = cumsum(is_noshow) - is_noshow
+  ) %>%
+  ungroup() %>%
+  select(-is_noshow)  # remove temporary flag column
+
+# 2. Check results for one patient
+past_appointments %>%
+  select(patient_id, appointment_date, status, past_no_show_count) %>%
+  filter(patient_id == head(unique(patient_id), 1))  # example for first patient
+
+```
+
+
+
+```{r}
+#Categorize patients by past no-show history
+history_impact <- past_appointments %>%
+  mutate(
+    history_group = case_when(
+      past_no_show_count == 0 ~ "First time (0)",        # No previous no-show
+      past_no_show_count == 1 ~ "1 past no-show",        # 1 previous no-show
+      past_no_show_count >= 2 ~ "2+ past no-shows"      # 2 or more previous no-shows
+    )
+  ) %>%
+  group_by(history_group) %>%
+  summarise(
+    total_appointments = n(),                          # Total appointments in the group
+    current_no_show = sum(status == "did not attend"), # Number of current no-shows
+    current_noshow_rate = (current_no_show / total_appointments) * 100, # % of no-shows
+    .groups = "drop"
+  )
+
+
+```
+
+
+
+```{r}
+# Visualize impact of past no-show history on current no-show rate
+ggplot(history_impact, 
+       aes(x = factor(history_group, levels = c("First time (0)", "1 past no-show", "2+ past no-shows")),
+           y = current_noshow_rate, 
+           fill = history_group)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f%%", current_noshow_rate)), 
+            vjust = -0.5, size = 5, fontface = "bold") +
+  scale_fill_manual(values = c("First time (0)" = "#264653", 
+                               "1 past no-show" = "#F4A261", 
+                               "2+ past no-shows" = "#E76F51")) +
+  # y-axis range slightly extended to emphasize differences
+  coord_cartesian(ylim = c(min(history_impact$current_noshow_rate) * 0.9, 
+                           max(history_impact$current_noshow_rate) * 1.1)) +
+  labs(title = "Impact of Past No-Show History on Current No-Shows",
+       x = "Cumulative Past No-Shows", 
+       y = "Current No-Show Rate (%)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+
+
+
+
+
+
+```{r}
+# Determine whether new or returning patients have higher no-show rates
+
+# 1. First attended date per patient
+first_attended_dates <- past_appointments %>%
+  filter(status == "attended") %>%
+  group_by(patient_id) %>%
+  summarise(first_attended_date = min(appointment_date), .groups = "drop")
+
+# 2. Define patient type and no-show flag
+refined_patient_analysis <- past_appointments %>%
+  left_join(first_attended_dates, by = "patient_id") %>%
+  mutate(
+    patient_type = case_when(
+      is.na(first_attended_date) | appointment_date < first_attended_date ~ "New",
+      appointment_date > first_attended_date ~ "Returning",
+      TRUE ~ NA_character_  # exclude the first attended day itself
+    ),
+    is_noshow = status == "did not attend"
+  ) %>%
+  filter(!is.na(patient_type)) %>%
+  group_by(patient_type) %>%
+  summarise(
+    total_appointments = n(),
+    noshow_rate = mean(is_noshow) * 100,
+    .groups = "drop"
+  )
+
+# 3. Visualization
+ggplot(refined_patient_analysis,
+       aes(x = patient_type, y = noshow_rate, fill = patient_type)) +
+  geom_col(width = 0.5, alpha = 0.85) +
+  geom_text(aes(label = sprintf("%.1f%%", noshow_rate)),
+            vjust = -0.5, size = 6, fontface = "bold") +
+  scale_fill_manual(values = c("New" = "#E76F51", "Returning" = "#264653")) +
+  scale_y_continuous(limits = c(0, max(refined_patient_analysis$noshow_rate) * 1.3)) +
+  labs(
+    title = "No-Show Rate by Patient Type",
+    subtitle = "Comparison of no-show rates between first-time and returning patients",
+    x = "Patient Type",
+    y = "No-Show Rate (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(size = 12, face = "bold"),
+    title = element_text(size = 14, face = "bold")
+  )
+
+```
+
+
+
+
+```{r}
+unique(past_appointments$status)
+str(past_appointments$status)
+colnames(past_appointments)
+str(past_appointments)
+```
+
+
+
+```{r}
+# Create the first attended date for each patient
+first_attended_dates <- past_appointments %>%
+  filter(status == "attended") %>%
+  group_by(patient_id) %>%
+  summarise(
+    first_attended_date = min(appointment_date),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+# Prepare the dataset for modeling
+model_data <- past_appointments %>%
+  left_join(first_attended_dates, by = "patient_id") %>%
+  mutate(
+    # Define patient type based on first attended date
+    patient_type = case_when(
+      is.na(first_attended_date) |
+        appointment_date < first_attended_date ~ "New Patient",
+      appointment_date > first_attended_date ~ "Returning Patient",
+      TRUE ~ NA_character_
+    ),
+    # Create binary target variable for no-show
+    is_noshow = status == "did not attend",
+
+    # Derived variables
+    weekday = wday(appointment_date, label = TRUE),  # Day of the week
+    hour = hour(appointment_time)                    # Appointment hour
+  ) %>%
+  # Select relevant features for modeling
+  select(
+    is_noshow,
+    patient_type,
+    scheduling_interval,
+    weekday,
+    hour,
+    age,
+    sex,
+    insurance
+  ) %>%
+  # Exclude rows with missing patient type
+  filter(!is.na(patient_type)) %>%
+  drop_na()  # Drop remaining missing values
+
+```
+
+
+
+```{r}
+# Logistic Regression to predict No-show
+logit_model <- glm(
+  is_noshow ~ patient_type +      # New vs Returning Patient
+    scheduling_interval +         # Days between scheduling and appointment
+    age +                         # Patient age
+    sex +                         # Patient sex
+    weekday +                     # Day of the week
+    hour,                         # Appointment hour
+  data = model_data,
+  family = binomial               # Logistic regression
+)
+
+# Display model summary
+summary(logit_model)
+
+```
+
+Logistic Regression Results
+
+A logistic regression analysis identified patient type as the only significant predictor of no-show (p < 0.001). Returning patients are approximately 82% less likely to miss their appointments compared to new patients. Other variables, including age, sex, scheduling interval, weekday, and appointment hour, were not statistically significant.
+
+Business Implication
+
+New patients represent the highest no-show risk segment, suggesting that targeted reminder or confirmation strategies should focus on first-time patients to improve attendance rates.
+
+
+
+```{r}
+# 1. Filter and categorize scheduling interval
+risk_analysis_eng <- past_appointments %>%
+  filter(status %in% c("did not attend", "cancelled")) %>%
+  mutate(
+    interval_group = case_when(
+      scheduling_interval <= 1  ~ "0-1 Days (Urgent)",
+      scheduling_interval <= 7  ~ "2-7 Days (Short)",
+      scheduling_interval <= 14 ~ "8-14 Days (Medium)",
+      scheduling_interval <= 30 ~ "15-30 Days (Long)",
+      TRUE                      ~ "Over 30 Days"
+    ),
+    interval_group = factor(interval_group, 
+                            levels = c("0-1 Days (Urgent)", "2-7 Days (Short)", 
+                                       "8-14 Days (Medium)", "15-30 Days (Long)", 
+                                       "Over 30 Days"))
+  ) %>%
+  group_by(interval_group, status) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(interval_group) %>%
+  mutate(percentage = (count / sum(count)) * 100)
+
+# 2. Visualization (No-show vs Cancel)
+ggplot(risk_analysis_eng, aes(x = interval_group, y = percentage, fill = status)) +
+  geom_col(position = "fill") +  # 100% stacked bar
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), 
+            position = position_fill(vjust = 0.5), size = 4) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = c("did not attend" = "#d9534f", "cancelled" = "#f0ad4e")) +
+  labs(
+    title = "Proportion of No-show vs Cancel by Scheduling Interval",
+    subtitle = "Which risk type dominates as the interval between booking and appointment increases?",
+    x = "Scheduling Interval (Days)",
+    y = "Proportion of Risk (%)",
+    fill = "Status"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 10),
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 10, face = "plain")
+  )
+```
+
+
+
+
+```{r}
+# 1. Calculate no-show rate based on the entire dataset
+noshow_trend <- past_appointments %>%
+  # Define status values required for analysis (Attended vs No-show)
+  # Cancelled appointments can be included or excluded depending on analysis purpose.
+  # Here, they are excluded to focus on pure no-show rate.
+  filter(status %in% c("attended", "did not attend")) %>% 
+  mutate(
+    # Create binary indicator for no-show
+    is_noshow = ifelse(status == "did not attend", 1, 0),
+    
+    # Categorize scheduling intervals into meaningful groups
+    interval_group = case_when(
+      scheduling_interval <= 1  ~ "0-1 Day (Urgent)",
+      scheduling_interval <= 7  ~ "2-7 Days (Short)",
+      scheduling_interval <= 14 ~ "8-14 Days (Medium)",
+      scheduling_interval <= 30 ~ "15-30 Days (Long)",
+      TRUE                      ~ "Over 30 Days"
+    ),
+    # Ensure interval groups have a logical order for plotting
+    interval_group = factor(interval_group, 
+                            levels = c("0-1 Day (Urgent)", "2-7 Days (Short)", 
+                                       "8-14 Days (Medium)", "15-30 Days (Long)", 
+                                       "Over 30 Days"))
+  ) %>%
+  # Aggregate data by interval group
+  group_by(interval_group) %>%
+  summarise(
+    total_appointments = n(),           # Total number of appointments in the group
+    noshow_count = sum(is_noshow),      # Number of no-shows
+    noshow_rate = (noshow_count / total_appointments) * 100, # No-show rate in %
+    .groups = 'drop'
+  )
+
+# 2. Visualize the trend of no-show rate by scheduling interval
+ggplot(noshow_trend, aes(x = interval_group, y = noshow_rate, fill = interval_group)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = sprintf("%.1f%%", noshow_rate)), vjust = -0.5, size = 5, fontface = "bold") +
+  scale_fill_brewer(palette = "Reds") +
+  labs(
+    title = "No-show Rate by Appointment Scheduling Interval",
+    subtitle = "Does longer wait time increase the likelihood of patients not showing up?",
+    x = "Days Between Scheduling and Appointment",
+    y = "No-show Rate (%)"
+  ) +
+  theme_minimal() +
+  ylim(0, max(noshow_trend$noshow_rate) + 10) # Add space above bars for labels
+
+```
+
+
+
+
+```{r}
+str(past_appointments)
+```
+
+
+
+```{r}
+# 1. Data preprocessing and identify slot recovery
+recovery_analysis <- past_appointments %>%
+  # Extract necessary columns and create time slots
+  mutate(
+    app_hour = hour(appointment_time),
+    time_slot = case_when(
+      app_hour < 12 ~ "Morning (08-12)",
+      app_hour >= 12 & app_hour < 17 ~ "Afternoon (12-17)",
+      TRUE ~ "Evening (17-)"
+    ),
+    # Fix the order of weekdays for consistent plotting
+    day_of_week = factor(day_of_week, 
+                         levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+  ) %>%
+  # Determine whether cancelled slots were refilled
+  group_by(appointment_date, slot_id) %>%
+  mutate(
+    is_cancelled = any(status %in% c("cancelled", "did not attend")),
+    is_refilled = is_cancelled & any(status == "attended") 
+  ) %>% # <--- 여기서 mutate를 닫고 파이프를 써야 합니다.
+  ungroup()
+
+# 2. Summarize recovery rate by weekday and time slot
+recovery_summary <- recovery_analysis %>%
+  filter(is_cancelled == TRUE) %>%
+  group_by(day_of_week, time_slot) %>%
+  summarise(
+    total_cancelled = n_distinct(slot_id),                  # Total cancelled slots
+    refilled_count = n_distinct(slot_id[is_refilled == TRUE]), # Number of cancelled slots that were refilled
+    recovery_rate = (refilled_count / total_cancelled) * 100, # Recovery rate in %
+    .groups = 'drop'
+  ) %>%
+  # Ensure time_slot factor order for visualization
+  mutate(time_slot = factor(time_slot, 
+                            levels = c("Evening (17-)", 
+                                       "Afternoon (12-17)", 
+                                       "Morning (08-12)")))
+
+# 3. Heatmap visualization: Recovery Rate
+ggplot(recovery_summary, aes(x = day_of_week, y = time_slot, fill = recovery_rate)) +
+  geom_tile(color = "white", size = 0.5) +
+  scale_fill_gradient(low = "#FFF5F0", high = "#CB181D") +
+  geom_text(aes(label = paste0(round(recovery_rate, 1), "%")), 
+            size = 4, fontface = "bold") +
+  labs(
+    title = "Slot Recovery Rate by Weekday and Time Slot",
+    subtitle = "Proportion of cancelled slots that were filled by other patients\n(Identify 'dead slots' that are rarely reused)",
+    x = "Weekday", y = "Time Slot", fill = "Recovery Rate (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 15, face = "bold"),
+    plot.subtitle = element_text(size = 10, lineheight = 1.1, color = "grey30"),
+    axis.text = element_text(size = 10)
+  )
+```
+
+
+
+
+```{r}
+# 1. Prepare dataset for waiting time comparison (using past_appointments)
+comparison_waiting <- past_appointments %>%
+  filter(!is.na(status)) %>%   # Exclude records with missing status
+  mutate(
+    # Classify patients: 'Loyal' if attended, 'Churned' otherwise (based on previous analysis criteria)
+    group = ifelse(status == "attended", "Loyal", "Churned"),
+    
+    # Ensure consistent factor levels for plotting or analysis
+    group = factor(group, levels = c("Loyal", "Churned"))
+  )
+
+```
+
+
+
+
+
+
+
+```{r}
+# 1. Extract list of slot IDs that were cancelled
+cancelled_slots_list <- past_appointments %>%
+  filter(status == "cancelled") %>%
+  select(slot_id) %>%
+  distinct()
+
+# 2. Check if these cancelled slots were eventually attended (recycled)
+recycling_analysis <- past_appointments %>%
+  filter(slot_id %in% cancelled_slots_list$slot_id) %>%
+  group_by(slot_id) %>%
+  summarise(
+    # Consider a slot successfully recycled if at least one 'attended' appointment exists
+    is_recycled = any(status == "attended"),
+    .groups = 'drop'
+  )
+
+# 3. Summarize overall recycling rate
+recycling_summary <- recycling_analysis %>%
+  summarise(
+    total_cancelled_slots = n(),              # Total number of cancelled slots
+    recycled_count = sum(is_recycled),        # Number of cancelled slots that were filled by other patients
+    recycling_rate = (recycled_count / total_cancelled_slots) * 100  # Overall recycling rate in %
+  )
+
+# Display recycling summary
+print(recycling_summary)
+
+```
+
+
+
+```{r}
+# 1. Create detailed slot-level dataset including recycling status
+slot_features <- past_appointments %>%
+  filter(slot_id %in% cancelled_slots_list$slot_id) %>%
+  group_by(slot_id) %>%
+  summarise(
+    is_recycled = any(status == "attended"),      # Whether the cancelled slot was eventually filled
+    # Extract basic slot information (at the time of cancellation)
+    appointment_time = first(appointment_time),
+    day_of_week = first(day_of_week),
+    insurance = first(insurance),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    # Categorize slots into 'Recycled' or 'Wasted'
+    status_group = if_else(is_recycled, "Recycled", "Wasted")
+  )
+
+# 2. Analyze recycling failures by weekday
+dow_waste_analysis <- slot_features %>%
+  group_by(day_of_week, status_group) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(day_of_week) %>%
+  mutate(waste_rate = (count / sum(count)) * 100) %>%
+  filter(status_group == "Wasted")  # Focus only on unrecycled slots
+
+print("--- [1] Recycling failure rate by weekday ---")
+print(dow_waste_analysis)
+
+# 3. Distribution of recycling failures by hour (prepare for visualization)
+# Round appointment time to nearest hour for analysis
+slot_features <- slot_features %>%
+  mutate(hour = as.numeric(substr(as.character(appointment_time), 1, 2)))
+
+hour_waste_plot <- ggplot(slot_features, aes(x = hour, fill = status_group)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Proportion of Recycled vs Wasted Slots by Hour",
+    x = "Appointment Hour", y = "Proportion (%)",
+    fill = "Status"
+  ) +
+  theme_minimal()
+
+print(hour_waste_plot)
+
+# 4. Analyze recycling rate based on lead time (time between scheduling and appointment)
+recycling_lead_time <- past_appointments %>%
+  filter(slot_id %in% cancelled_slots_list$slot_id) %>%
+  group_by(slot_id) %>%
+  summarise(
+    # Calculate lead time in days (difference between scheduling date and appointment date)
+    lead_time_days = as.numeric(first(appointment_date) - first(scheduling_date)),
+    is_recycled = any(status == "attended"),   # Was the slot recycled
+    .groups = 'drop'
+  )
+
+# Compute recycling rate by lead time group
+lead_time_analysis <- recycling_lead_time %>%
+  mutate(
+    lead_group = case_when(
+      lead_time_days == 0 ~ "0 days (same day)",
+      lead_time_days <= 2 ~ "1-2 days",
+      lead_time_days <= 7 ~ "3-7 days",
+      TRUE ~ "More than 7 days"
+    )
+  ) %>%
+  group_by(lead_group) %>%
+  summarise(
+    total_slots = n(),
+    recycled_count = sum(is_recycled),
+    recycling_rate = (recycled_count / total_slots) * 100
+  )
+
+print(lead_time_analysis)
+
+```
+
+```{r}
+
+# Visualization of recycling rate by lead time
+ggplot(lead_time_analysis, aes(x = lead_group, y = recycling_rate, fill = lead_group)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(recycling_rate, 1), "%")), vjust = -0.5) +
+  labs(
+    title = "Slot Recycling Rate by Lead Time",
+    x = "Lead Time (Days from Scheduling to Cancellation)",
+    y = "Recycling Rate (%)"
+  ) +
+  theme_minimal()
+
+```
+
+BA의 최종 운영 제안: "3-7일의 법칙"
+예약 확인 콜 최적화: 재활용률이 가장 높은 진료 3~7일 전에 환자들에게 예약 확정 알림을 보내고, 취소 의사가 있다면 이 시점에 확정받아 대체 환자를 찾아야 합니다.
+
+단기 취소 패널티 및 보상: 재활용률이 낮은 1~2일 전 취소를 줄이기 위해 노쇼 방지 예약금을 도입하거나, 반대로 이 시점에 예약하는 환자에게는 혜택을 주는 '라스트 미닛(Last-minute)' 예약을 활성화해야 합니다.
+
+대기자 시스템(Waitlist) 자동화: 시간대와 요일에 상관없이 실패율이 높은 것은 수동 관리에 한계가 있다는 뜻입니다. 취소가 발생하는 즉시 대기 환자에게 자동 푸시 알림을 보내는 시스템 도입이 시급합니다.
+
+
+
+
+i. 누가 그 "빈 자리"를 채웠는가
+1) 특정 보험사?
+2) 연령대별로?
+비즈니스 가치: 빈 슬롯 발생 시 즉시 알림을 보낼 타겟 대상(당일 예약 선호군) 정의 가능
+
+
+-재활용된 슬롯에 '나중에 들어와서 진료를 받은(attended)' 환자들의 특성을 분석
+```{r}
+# 1. Extract data of patients who filled slots after a cancellation ("Refill Patients")
+refill_patients <- past_appointments %>%
+  group_by(appointment_date, slot_id) %>%
+  # Keep only slots where both cancellations and attended appointments exist
+  filter(any(status %in% c("cancelled", "did not attend")) & any(status == "attended")) %>%
+  # Retain only the patients who actually attended
+  filter(status == "attended") %>%
+  ungroup()
+
+# 2. Analyze contribution of insurance types to recycled slots
+insurance_contribution <- refill_patients %>%
+  group_by(insurance) %>%
+  summarise(count = n()) %>%
+  mutate(
+    share = (count / sum(count)) * 100   # Proportion of recycled slots by insurance type
+  ) %>%
+  arrange(desc(share))  # Highest contributing insurance types first
+
+# 3. Analyze contribution of age groups to recycled slots
+age_group_contribution <- refill_patients %>%
+  group_by(age_group) %>%
+  summarise(count = n()) %>%
+  mutate(
+    share = (count / sum(count)) * 100   # Proportion of recycled slots by age group
+  ) %>%
+  arrange(desc(share))  # Highest contributing age groups first
+
+```
+
+시각화
+```{r}
+# 4a. Visualization: Contribution of Age Groups to Refilled Slots
+ggplot(age_group_contribution, aes(x = reorder(age_group, -share), y = share, fill = age_group)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(share, 1), "%")), vjust = -0.5) +
+  labs(
+    title = "Top Age Groups Filling Cancelled Slots",
+    x = "Age Group", y = "Contribution (%)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") # Remove legend for cleaner visualization
+
+# 4b. Visualization: Contribution of Insurance Types to Refilled Slots
+ggplot(insurance_contribution, aes(x = reorder(insurance, share), y = share, fill = insurance)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip coordinates for better readability of long insurance names
+  geom_text(aes(label = paste0(round(share, 1), "%")), 
+            hjust = -0.1, size = 3.5, fontface = "bold") +
+  scale_fill_viridis_d(option = "mako", guide = "none") + # Clean, professional color palette
+  labs(
+    title = "Contribution of Insurance Types to Refilled Slots",
+    subtitle = "Which insurance holders most frequently fill available slots?",
+    x = "Insurance", y = "Contribution (%)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 9))
+
+```
+
+히트맵 보험사&연령
+```{r}
+# 1. Aggregate successful slot refills by insurance type and age group
+heatmap_data <- refill_patients %>%
+  group_by(insurance, age_group) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  # Calculate contribution rate (%) relative to all successful refills
+  mutate(contribution_rate = (count / sum(count)) * 100)
+
+# 2. Visualize as a heatmap
+ggplot(heatmap_data, aes(x = age_group, y = insurance, fill = contribution_rate)) +
+  geom_tile(color = "white") +  # Draw grid lines for readability
+  scale_fill_gradient(low = "#f7fbff", high = "#08306b", name = "Contribution (%)") +
+  geom_text(aes(label = round(contribution_rate, 1)), size = 3, 
+            color = ifelse(heatmap_data$contribution_rate > 2, "white", "black")) +
+  labs(
+    title = "Heatmap: Contribution of Insurance × Age Group to Refilled Slots",
+    subtitle = "Darkest cells indicate the primary target for notifications when slots become available",
+    x = "Age Group", y = "Insurance"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+이번엔 이전 진료경험이 있는 고객 특징 - return customer feature 분석
+
+```{r}
+# 1. Identify true return patients (patients who actually attended >= 2 appointments)
+loyal_patients_ids <- past_appointments %>%
+  filter(status == "attended") %>%   # Consider only appointments that were actually attended
+  group_by(patient_id) %>%
+  summarise(attended_count = n()) %>%   # Count number of attended appointments per patient
+  filter(attended_count >= 2) %>%       # Filter for patients with 2 or more visits
+  pull(patient_id)                      # Extract patient IDs
+
+# 2. Extract full appointment history for these return patients
+loyal_patients_history <- past_appointments %>%
+  filter(patient_id %in% loyal_patients_ids)
+
+# 3. Check the number of unique return patients
+n_distinct(loyal_patients_history$patient_id)   # Number of true return patients
+
+```
+
+```{r}
+# Reference date: Last date in the dataset
+last_date <- max(past_appointments$appointment_date)
+
+# 1. Identify Churned customers
+# Criteria:
+#   - Not in Loyal patients
+#   - Only 1 attended appointment
+#   - No visit for at least 6 months (180 days)
+churned_customers <- past_appointments %>%
+  filter(!(patient_id %in% loyal_patients_history$patient_id)) %>% 
+  filter(status == "attended") %>%
+  group_by(patient_id) %>%
+  filter(n() == 1) %>%   # Only one attended appointment
+  filter(as.numeric(last_date - max(appointment_date)) >= 180) %>%  # No visit for 6+ months
+  ungroup()
+
+# 2. Identify Other customers
+# Criteria: Not Loyal and not Churned
+other_customers <- past_appointments %>%
+  filter(!(patient_id %in% loyal_patients_history$patient_id)) %>%
+  filter(!(patient_id %in% churned_customers$patient_id))
+
+```
+
+
+Loyal customer, Churned customer, other customer 각 카운트
+```{r}
+# Calculate the number of unique patients in each customer segment
+summary_counts <- tibble(
+  Group = c("Loyal Customers", "Churned Customers", "Other Customers"),
+  Unique_Patient_Count = c(
+    n_distinct(loyal_patients_history$patient_id),   # True return patients
+    n_distinct(churned_customers$patient_id),       # Churned customers (1 visit, 6+ months no show)
+    n_distinct(other_customers$patient_id)          # Remaining customers
+  )
+)
+
+# Print the summary table
+print(summary_counts)
+
+# Optional: Verify the sum of the three groups matches total unique patients in the dataset
+total_unique_in_data <- n_distinct(past_appointments$patient_id)
+cat("Total unique patients in dataset:", total_unique_in_data, "\n")
+cat("Sum of the three groups:", sum(summary_counts$Unique_Patient_Count), "\n")
+
+```
+
+
+
+```{r}
+# Generate profile for "Other" customers to inspect their characteristics
+other_patient_profile <- other_customers %>%
+  group_by(patient_id) %>%
+  summarise(
+    total_appointments = n(),                      # Total number of appointments for the patient
+    attended_count = sum(status == "attended"),    # Number of attended appointments
+    non_attended_count = sum(status != "attended"),# Number of non-attended appointments (cancelled or no-show)
+    last_appointment_date = max(appointment_date), # Date of most recent appointment
+    days_since_last = as.numeric(last_date - max(appointment_date))  # Days since last appointment
+  )
+
+# Inspect summary statistics to verify classification
+summary(other_patient_profile)
+
+```
+
+
+
+```{r}
+# Check for overlaps between customer segments
+
+# 1. Verify if "Other" customers overlap with Loyal customers
+# A result of 0 confirms no overlap
+sum(unique(other_customers$patient_id) %in% unique(loyal_patients_history$patient_id))
+
+# 2. Verify if "Other" customers overlap with Churned customers
+# A result of 0 confirms no overlap
+sum(unique(other_customers$patient_id) %in% unique(churned_customers$patient_id))
+
+```
+
+
+기초탐색
+-loyal VS churned 고객 특성 비교
+
+
+Loyal VS Churned 고객 데이터셋
+```{r}
+# Summarize appointment history for Loyal and Churned customers
+# Already identified: loyal_patients_ids, churned_customers$patient_id
+loyal_churned_data <- past_appointments %>%
+  filter(patient_id %in% c(loyal_patients_ids, churned_customers$patient_id)) %>%
+  group_by(patient_id) %>%
+  summarise(
+    total_appointments = n(),                       # Total number of appointments
+    attended_count = sum(status == "attended"),     # Number of appointments actually attended
+    cancelled_count = sum(status == "cancelled"),   # Number of cancelled appointments
+    noshow_count = sum(status == "did not attend"), # Number of no-shows
+    avg_scheduling_interval = mean(scheduling_interval, na.rm = TRUE), # Average days between scheduling and appointment
+    age = first(age),                               # Patient's age
+    sex = first(sex)                                # Patient's gender
+  ) %>%
+  mutate(
+    is_loyal = ifelse(patient_id %in% loyal_patients_ids, 1, 0) # Target variable for modeling: 1 = Loyal, 0 = Churned
+  )
+
+```
+
+기초탐색
+```{r}
+# Exploratory Data Analysis (EDA) for Loyal vs Churned customers
+
+# 1. Count of customers in each segment
+loyal_churned_data %>%
+  group_by(is_loyal) %>%
+  summarise(n = n())   # 1 = Loyal, 0 = Churned
+
+# 2. Compare average appointments, attended, cancelled, no-show counts, and scheduling interval
+loyal_churned_data %>%
+  group_by(is_loyal) %>%
+  summarise(
+    avg_total_appointments = mean(total_appointments),         # Average total appointments
+    avg_attended = mean(attended_count),                       # Average attended appointments
+    avg_cancelled = mean(cancelled_count),                     # Average cancelled appointments
+    avg_noshow = mean(noshow_count),                           # Average no-shows
+    avg_scheduling_interval = mean(avg_scheduling_interval, na.rm = TRUE), # Avg days between scheduling & appointment
+    avg_age = mean(age)                                        # Average age
+  )
+
+# 3. Gender distribution across segments
+loyal_churned_data %>%
+  group_by(is_loyal, sex) %>%
+  summarise(n = n()) %>%
+  mutate(pct = n / sum(n) * 100)   # Percentage of each gender within the segment
+
+```
+
+
+```{r}
+# Logistic Regression Model to predict Loyal customers
+# Target variable: is_loyal (1 = Loyal, 0 = Churned)
+# Predictor variables: total appointments, no-show count, cancelled count, avg scheduling interval, age, sex
+
+loyal_logit <- glm(
+  is_loyal ~ total_appointments + noshow_count + cancelled_count +
+    avg_scheduling_interval + age + sex,
+  data = loyal_churned_data,
+  family = binomial
+)
+
+# Model summary: coefficients, significance, goodness-of-fit
+summary(loyal_logit)
+
+# Compute Odds Ratios to interpret the effect size of each predictor
+exp(coef(loyal_logit))
+
+```
+
+```{r}
+colnames(loyal_patients_history)
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Identify "active" patients among Other Customers who visited within the last 6 months
+# Purpose: Understand engagement of non-loyal, non-churned patients
+
+active_new_patients <- other_customers %>%
+  filter(status == "attended") %>%                    # Consider only attended appointments
+  group_by(patient_id) %>%
+  summarise(
+    last_visit = max(appointment_date),              # Date of the most recent visit
+    days_since_last = as.numeric(last_date - last_visit), # Days since last visit
+    .groups = 'drop'
+  ) %>%
+  # Filter patients whose last visit was within 180 days
+  filter(days_since_last < 180)
+
+# Print number of active "Other" patients
+cat("Number of active Other Customers with visits in the last 6 months:", nrow(active_new_patients), "\n")
+
+```
+
+
+
+
+
+```{r}
+# Analyze waiting time and scheduling interval across customer segments
+
+# 1. Combine patient histories with group labels
+loyal_churned_patients_history <- bind_rows(
+  loyal_patients_history %>% mutate(group = "Loyal"),
+  churned_customers %>% mutate(group = "Churned"),
+  other_customers %>% mutate(group = "Other")
+)
+
+# 2. Compute statistics for waiting time and scheduling interval by group
+group_stats <- loyal_churned_patients_history %>%
+  group_by(group) %>%
+  summarise(
+    count = n(),                                   # Total number of appointments
+    avg_waiting = mean(waiting_time, na.rm = TRUE),    # Average waiting time until appointment
+    median_waiting = median(waiting_time, na.rm = TRUE), # Median waiting time
+    avg_interval = mean(scheduling_interval, na.rm = TRUE), # Average scheduling interval (days between scheduling and appointment)
+    .groups = 'drop'
+  )
+
+# Display group-level statistics
+print(group_stats)
+
+```
+
+
+
+
+대기시간별 시각화
+```{r}
+# 1. Waiting Time Comparison (Boxplot)
+# Purpose: Examine if longer waiting times are associated with Churned customers
+ggplot(loyal_churned_patients_history, aes(x = group, y = waiting_time, fill = group)) +
+  geom_boxplot(alpha = 0.7, outlier.alpha = 0.2) +                 # Boxplot with transparent outliers
+  scale_fill_manual(values = c("Loyal" = "#1a91ff", "Churned" = "#ff4d4f", "Other" = "#8c8c8c")) +
+  labs(title = "Waiting Time Comparison by Patient Group",
+       subtitle = "Investigating the impact of waiting time on loyalty",
+       x = "Patient Group", y = "Waiting Time (minutes)") +
+  theme_minimal() +
+  # Cap the y-axis at the 95th percentile to reduce distortion from extreme outliers
+  ylim(0, quantile(loyal_churned_patients_history$waiting_time, 0.95, na.rm = TRUE))
+
+
+# 2. Scheduling Interval Distribution (Density Plot)
+# Purpose: Test hypothesis whether patients with shorter scheduling intervals tend to be Loyal
+ggplot(loyal_churned_patients_history, aes(x = scheduling_interval, fill = group)) +
+  geom_density(alpha = 0.4) +                                     # Density plot for distribution comparison
+  scale_fill_manual(values = c("Loyal" = "#1a91ff", "Churned" = "#ff4d4f", "Other" = "#8c8c8c")) +
+  labs(title = "Distribution of Scheduling Interval by Patient Group",
+       x = "Scheduling Interval (days)", y = "Density") +
+  theme_minimal() +
+  xlim(0, 45)   # Focus on short-term appointments within 45 days
+
+```
+
+
+```{r}
+# 1. One-Way ANOVA
+# Purpose: Test whether the mean scheduling interval differs across patient groups
+# Hypothesis: Loyal patients may have shorter scheduling intervals than Churned or Other patients
+anova_result <- aov(scheduling_interval ~ group, data = loyal_churned_patients_history)
+
+# Display ANOVA summary
+summary(anova_result)
+
+
+# 2. Post-hoc Test (Tukey HSD)
+# Purpose: Identify which specific groups differ if ANOVA shows significant differences
+tukey_result <- TukeyHSD(anova_result)
+tukey_result
+
+```
+
+
+
+
+-연령별 이탈 순위
+```{r}
+# 1. Calculate and rank churn rate by age group
+age_group_rank <- comparison_waiting %>%
+  group_by(age_group) %>%
+  summarise(
+    avg_churn = mean(group == "Churned") * 100,
+    total_count = n(),
+    .groups = 'drop'
+  ) %>%
+  # Sort age groups by churn rate in descending order
+  arrange(desc(avg_churn))
+
+# 2. Visualize churn rate using a bar chart
+ggplot(age_group_rank, aes(x = reorder(age_group, -avg_churn), 
+                           y = avg_churn, 
+                           fill = avg_churn)) +
+  geom_bar(stat = "identity") +
+  scale_fill_gradient(low = "orange", high = "red") +
+  geom_text(aes(label = paste0(round(avg_churn, 1), "%")), 
+            vjust = -0.5, size = 3) +
+  labs(
+    title = "Average Churn Rate by Age Group",
+    subtitle = "Which age groups experience the highest churn?",
+    x = "Age Group",
+    y = "Churn Rate (%)",
+    fill = "Churn Rate"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+
+
+
+```{r}
+# 1. Calculate total number of patients (denominator for proportion)
+total_patients <- comparison_waiting %>% 
+  filter(group %in% c("Loyal", "Churned")) %>% 
+  nrow()
+
+# 2. Prepare data and calculate churn metrics
+age_group_final <- comparison_waiting %>%
+  filter(group %in% c("Loyal", "Churned")) %>%
+  group_by(age_group, group) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(age_group) %>%
+  mutate(
+    total_group_count = sum(count),
+    churn_rate = (count[group == "Churned"] / total_group_count) * 100,
+    total_proportion = (count / total_patients) * 100,
+    # Calculate the top position of each stacked bar (for text placement)
+    stack_top = sum(total_proportion)
+  ) %>%
+  ungroup()
+
+# 3. Visualization (stacked bar chart)
+ggplot(age_group_final, aes(x = reorder(age_group, -total_group_count), 
+                            y = total_proportion, 
+                            fill = group)) +
+  geom_bar(stat = "identity") +
+  
+  # Display customer count inside bars (use 'k' notation for readability)
+  geom_text(aes(label = ifelse(count >= 1000, 
+                               paste0(round(count / 1000, 1), "k"), 
+                               count)),
+            position = position_stack(vjust = 0.5), 
+            size = 4,
+            fontface = "plain",
+            color = "white") + 
+            
+  # Display churn rate (%) above each bar in red
+  geom_text(data = age_group_final %>% filter(group == "Loyal"), 
+            aes(y = stack_top, label = paste0(round(churn_rate, 1), "%")),
+            vjust = -0.5, 
+            size = 3, 
+            color = "red", 
+            fontface = "bold") +
+  
+  scale_fill_manual(values = c("Loyal" = "#00BFC4", "Churned" = "#F8766D")) +
+  labs(
+    title = "Loyal vs Churned Customers by Age Group",
+    subtitle = "Counts are shown inside bars; churn rate (%) is displayed above each bar.",
+    x = "Age Group",
+    y = "Proportion of Total Customers (%)",
+    fill = "Customer Group"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15)))
+
+```
+
+
+
+
+```{r}
+# Analyze churn rate by insurance provider
+insurance_result <- comparison_waiting %>%
+  group_by(insurance, group) %>%
+  summarise(patient_count = n(), .groups = 'drop') %>%
+  group_by(insurance) %>%
+  mutate(
+    total_patients = sum(patient_count),
+    churn_rate = (patient_count / total_patients) * 100
+  ) %>%
+  filter(group == "Churned") %>%
+  arrange(desc(churn_rate))
+
+# View results
+print(insurance_result)
+
+```
+
+
+
+
+```{r}
+# Hypothesis testing: Does customer churn differ by insurance provider?
+# Visualization to evaluate the hypothesis
+
+# 1. Data preparation (calculate each insurer's proportion of total patients)
+total_all_patients <- nrow(
+  comparison_waiting %>% filter(group %in% c("Loyal", "Churned"))
+)
+
+insurance_stack_data <- comparison_waiting %>%
+  filter(group %in% c("Loyal", "Churned")) %>%
+  group_by(insurance, group) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(insurance) %>%
+  mutate(
+    insurance_total = sum(count),
+    # Proportion of total hospital patients by insurance provider
+    proportion_of_total = (count / total_all_patients) * 100,
+    churn_rate = (count[group == "Churned"] / insurance_total) * 100
+  ) %>%
+  ungroup()
+
+# 2. Visualization (sorted by insurance provider size)
+ggplot(insurance_stack_data, 
+       aes(x = reorder(insurance, -insurance_total), 
+           y = proportion_of_total, 
+           fill = group)) +
+  geom_bar(stat = "identity") +
+  # Display churn rate (%) at the top of each bar
+  geom_text(data = insurance_stack_data %>% filter(group == "Loyal"),
+            aes(y = insurance_total / total_all_patients * 100, 
+                label = paste0(round(churn_rate, 1), "%")),
+            vjust = -0.5, 
+            color = "red", 
+            size = 3, 
+            fontface = "bold") +
+  scale_fill_manual(values = c("Loyal" = "#00BFC4", "Churned" = "#F8766D")) +
+  labs(
+    title = "Customer Distribution and Churn Rate by Insurance Provider",
+    subtitle = "Bar height represents share of total patients; red labels indicate churn rate within each insurer",
+    x = "Insurance Provider (Sorted by Patient Volume)",
+    y = "Proportion of Total Patients (%)",
+    fill = "Customer Group"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+The hypothesis that customer churn is primarily driven by insurance providers was rejected, as churn rates remained relatively consistent across insurers.
+
+While churn rate differences were not statistically meaningful, Vitalynx Orbit, the hospital’s largest insurance partner, accounts for over 30% of total patients and maintains a churn rate of 14.1%, which is close to the overall average.
+
+This suggests that churn is less influenced by insurance-specific processes and more likely driven by other operational factors such as waiting time or service experience.
+
+
+
+
+```{r}
+# Hypothesis: Does a longer waiting time between booking and appointment
+# increase the likelihood of customer churn?
+
+# 1. Calculate churn rate by scheduling interval (in days)
+interval_analysis <- comparison_waiting %>%
+  filter(scheduling_interval >= 0) %>%
+  group_by(scheduling_interval) %>%
+  summarise(
+    total_patients = n(),
+    churn_rate = mean(group == "Churned") * 100,
+    .groups = 'drop'
+  ) %>%
+  # Exclude intervals with very small sample sizes
+  filter(total_patients > 10)
+
+# 2. Visualization
+ggplot(interval_analysis, aes(x = scheduling_interval, y = churn_rate)) +
+  geom_line(color = "#F8766D", size = 1) +
+  geom_point(aes(size = total_patients), 
+             color = "#F8766D", 
+             alpha = 0.4) +
+  geom_smooth(method = "loess", 
+              color = "blue", 
+              se = FALSE, 
+              linetype = "dashed") +
+  labs(
+    title = "Relationship Between Scheduling Interval and Churn Rate",
+    subtitle = "Does a longer wait between booking and appointment increase churn?",
+    x = "Scheduling Interval (Days)",
+    y = "Churn Rate (%)",
+    size = "Number of Patients"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = function(x) paste0(x, "%"))
+
+```
+
+
+
+
+
+status 별 분석
+
+```{r}
+# Analyze churn-related behavior by appointment status
+status_analysis <- comparison_waiting %>%
+  filter(scheduling_interval >= 0 & scheduling_interval <= 30) %>%
+  group_by(scheduling_interval, status) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(scheduling_interval) %>%
+  mutate(proportion = (count / sum(count)) * 100) %>%
+  # Exclude attended visits to focus on churn-related outcomes only
+  filter(status %in% c("did not attend", "cancelled"))
+
+# Visualization
+ggplot(status_analysis, 
+       aes(x = scheduling_interval, 
+           y = proportion, 
+           color = status)) +
+  geom_line(size = 1) +
+  geom_smooth(method = "loess", 
+              se = FALSE, 
+              linetype = "dashed") +
+  labs(
+    title = "No-show vs Cancellation Trends by Scheduling Interval",
+    x = "Scheduling Interval (Days)",
+    y = "Proportion (%)",
+    color = "Appointment Status"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Analyze employee performance by time slot and day of the week
+# Hypothesis: Higher proportion of loyal patients may indicate stronger employee performance
+# Aggregate at yearly level due to schedule variability
+
+time_performance_df <- comparison_waiting %>%
+  filter(group %in% c("Loyal", "Churned")) %>%
+  mutate(
+    # Extract hour from appointment time
+    app_hour = hour(hms(appointment_time)),
+    
+    # Categorize time slot
+    time_slot = case_when(
+      app_hour < 12 ~ "Morning (08-12)",
+      app_hour >= 12 & app_hour < 17 ~ "Afternoon (12-17)",
+      app_hour >= 17 ~ "Evening (17+)",
+      TRUE ~ "Other"
+    ),
+    
+    # Order weekdays
+    day_of_week = factor(day_of_week, 
+                         levels = c("Monday", "Tuesday", "Wednesday", "Thursday", 
+                                    "Friday", "Saturday", "Sunday")),
+    
+    # Add year column
+    appointment_year = year(appointment_date)
+  )
+
+# Calculate proportion of loyal patients by year, weekday, and time slot
+heatmap_data <- time_performance_df %>%
+  group_by(appointment_year, day_of_week, time_slot) %>%
+  summarise(
+    loyal_rate = mean(group == "Loyal") * 100,
+    patient_count = n(),
+    .groups = 'drop'
+  )
+
+```
+
+
+
+```{r}
+# 1. Extract total patients per year from past_appointments
+year_totals_original <- past_appointments %>%
+  mutate(appointment_year = year(appointment_date)) %>%
+  group_by(appointment_year) %>%
+  summarise(total_n = n()) %>% # Total number of appointments per year
+  mutate(facet_label = paste0(appointment_year, "\n(N = ", format(total_n, big.mark=","), ")"))
+
+# 2. Join original totals with heatmap data
+heatmap_data_final <- heatmap_data %>%
+  left_join(year_totals_original, by = "appointment_year")
+
+# 3. Set factor levels for time slots to control heatmap order
+heatmap_data_final <- heatmap_data_final %>%
+  mutate(time_slot = factor(time_slot, 
+                            levels = c("Evening (17-)", 
+                                       "Afternoon (12-17)", 
+                                       "Morning (08-12)")))
+
+# 4. Visualization
+ggplot(heatmap_data_final, aes(x = day_of_week, y = time_slot, fill = loyal_rate)) +
+  geom_tile(color = "white", size = 0.5) +
+  scale_fill_gradient2(low = "#F8766D", 
+                       mid = "white", 
+                       high = "#00BFC4", 
+                       midpoint = mean(heatmap_data$loyal_rate, na.rm = TRUE)) +
+  facet_wrap(~facet_label, switch = "x") + 
+  labs(
+    title = "Yearly Heatmap of Loyal Patient Proportion by Weekday and Time Slot",
+    subtitle = "N indicates total appointments per year from past_appointments",
+    x = "Day of Week", 
+    y = "Appointment Time Slot", 
+    fill = "Loyal Rate (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold", size = 10)
+  )
+
+```
+
+
+
+1. 연도별 충성도(Loyal Rate) 흐름 분석
+2015년 - 2019년 (황금기): 히트맵이 전반적으로 **푸른색(Loyal 비중 90% 이상)**을 띠고 있습니다. 이 시기에는 요일이나 시간대에 상관없이 환자들이 병원을 믿고 다시 찾는 '충성 고객' 중심의 운영이 매우 잘 이루어졌음을 알 수 있습니다.
+
+2021년 - 2023년 (위기기): 2021년부  터 히트맵에 **붉은색(Loyal 비중 75%~80%)**이 급격히 늘어납니다. 이는 충성 고객들이 이탈하고 신규 환자(또는 일회성 환자) 비중이 높아졌거나, 기존 고객들이 병원에 실망하여 'Churned(이탈)' 상태로 돌아섰음을 의미합니다.
+
+2024년 (회복 조짐): 다시 푸른색이 보이기 시작하며 충성도가 반등하는 모습을 보입니다.
+
+2. 시간대별 '직원 성과' 추론 (Proxy Analysis)
+질문하신 것처럼 특정 시간대에 Loyal 비중이 높다면, 해당 시간대 근무자의 환자 응대 서비스나 진료 만족도가 높을 가능성이 매우 큽니다.
+
+Afternoon (12-17)의 붕괴: 2022년과 2023년 데이터를 보면 Afternoon 시간대가 유독 붉게 변합니다.
+
+분석: 우리가 앞서 분석했던 '오후 시간대 대기 시간 폭증(70분)' 현상이 이 시기에 심화되었을 가능성이 큽니다.
+
+결론: 긴 대기 시간에 지친 충성 고객들이 이 시기에 대거 이탈했음을 시사합니다. 즉, 직원의 역량 문제라기보다 **'운영 시스템의 병목'**이 고객 충성도를 깎아먹은 주범일 수 있습니다.
+
+Evening (17-)의 상대적 선전: 2021년~2022년의 Evening 시간대는 Afternoon보다 푸른 빛을 더 유지하고 있습니다. 퇴근 후 진료를 보는 이 시간대 담당 인력이 환자 관리를 더 세심하게 잘했을 확률이 높습니다.
+
+3. 비즈니스 가치: '구원 투수' 인력 배치 전략
+이 히트맵을 바탕으로 다음과 같은 인력 운영 전략을 세울 수 있습니다.
+
+High-Loyal 인력 벤치마킹: 2024년에 다시 충성도를 끌어올린 Morning(오전) 근무자들의 환자 응대 매뉴얼을 전사적으로 확산시켜야 합니다.
+
+Wednesday(수요일) 집중 관리: 2023년 수요일 Afternoon의 충성도가 최저점을 찍었습니다. 앞서 확인했듯 재활용률도 낮고 혼잡도도 높은 이 시간대에는 가장 숙련된 베테랑 직원을 배치하여 고객 이탈을 막아야 합니다.
+
+
+
+
+```{r}
+# 1. Aggregate patient counts by year and group
+target_group_data <- past_appointments %>%
+  mutate(appointment_year = year(appointment_date)) %>%
+  # Define group: attended = Loyal, others = Churned
+  mutate(group = ifelse(status == "attended", "Loyal", "Churned")) %>%
+  group_by(appointment_year, group) %>%
+  summarise(count = n(), .groups = 'drop')
+
+# 2. Aggregate total patients per year for reference
+overall_total <- target_group_data %>%
+  group_by(appointment_year) %>%
+  summarise(count = sum(count), .groups = 'drop') %>%
+  # Add label for legend
+  mutate(group = "Total (All Patients)")
+
+```
+
+
+하지만 Loyal 이 줄어든 이유가 신규 고객 유입이 늘어서라면?
+```{r}
+# 1. Combine yearly patient counts for visualization
+final_trend_labeled <- bind_rows(target_group_data, overall_total)
+
+# 2. Extract years with max/min counts for each group
+special_years <- final_trend_labeled %>%
+  group_by(group) %>%
+  filter(count == max(count) | count == min(count)) %>%
+  pull(appointment_year) %>%
+  unique()
+
+# 3. Visualization: Highlight major peaks and troughs
+ggplot(final_trend_labeled, aes(x = appointment_year, y = count, color = group, group = group)) +
+  # Lines and points
+  geom_line(aes(linetype = group, size = (group == "Total (All Patients)"))) +
+  geom_point() +
+  
+  # Label counts for peak/trough years
+  geom_text(data = final_trend_labeled %>% filter(appointment_year %in% special_years),
+            aes(label = scales::comma(count)), 
+            vjust = -1.5, size = 3.5, fontface = "bold", show.legend = FALSE) +
+  
+  # Y-axis range adjustment
+  scale_y_continuous(limits = c(0, max(final_trend_labeled$count) * 1.3), 
+                     labels = scales::comma) +
+  
+  # Color, line type, and size settings
+  scale_color_manual(values = c("Loyal" = "#00BFC4", 
+                                "Churned" = "#F8766D", 
+                                "Total (All Patients)" = "#333333")) +
+  scale_size_manual(values = c("TRUE" = 1.2, "FALSE" = 0.8), guide = "none") +
+  scale_linetype_manual(values = c("Loyal" = "solid", 
+                                   "Churned" = "solid", 
+                                   "Total (All Patients)" = "dashed")) +
+  
+  # Labels
+  labs(
+    title = "Yearly Patient Count Trends Highlighting Peaks and Troughs",
+    subtitle = "Peak and bottom values help diagnose potential causes of loyalty decline",
+    x = "Year", y = "Number of Patients", color = "Group", linetype = "Group"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+
+```
+
+
+
+
+
+
+
+성별에 따른 이탈률
+```{r churned_rate_by_sex}
+# 1. Data preparation: Calculate churn rate by sex
+sex_analysis <- comparison_waiting %>%
+  filter(group %in% c("Loyal", "Churned"), !is.na(sex)) %>%
+  group_by(sex, group) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(sex) %>%
+  mutate(
+    total_count = sum(count),
+    churn_rate = (count[group == "Churned"] / total_count) * 100,
+    proportion = (count / total_count) * 100
+  ) %>%
+  ungroup()
+
+# 2. Visualization: Stacked bar chart showing Loyal vs Churned by sex
+ggplot(sex_analysis, aes(x = sex, y = proportion, fill = group)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  
+  # Display proportion (%) inside bars
+  geom_text(aes(label = paste0(round(proportion, 1), "%")),
+            position = position_stack(vjust = 0.5), 
+            size = 5, fontface = "bold", color = "white") +
+  
+  # Display churn rate for each sex on top of bars
+  geom_text(data = sex_analysis %>% filter(group == "Loyal"),
+            aes(y = 100, label = paste0("Churn Rate: ", round(churn_rate, 1), "%")),
+            vjust = -0.5, size = 4.5, color = "red", fontface = "bold") +
+  
+  scale_fill_manual(values = c("Loyal" = "#00BFC4", "Churned" = "#F8766D")) +
+  labs(
+    title = "Loyal vs Churned Patients by Sex",
+    subtitle = "Red text indicates churn rate within each sex",
+    x = "Sex",
+    y = "Proportion within Sex (%)",
+    fill = "Patient Group"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(labels = scales::comma, limits = c(0, 110))
+
+```
+
+
+
+
+
+
+
+대기실 혼잡도 개선을 위한 분석
+
+1. 시간대별 '환자 밀도' 분석 (Bottle-neck Discovery)
+단순히 예약 인원만 보는 게 아니라, 실제 머무는 시간을 계산해 대기실에 동시에 몇 명이 머무는지 추정해야 합니다.
+
+방법: appointment_time (시작) + waiting_time + appointment_duration (종료)을 계산하여, 10분 단위로 병원 내에 체류 중인 환자 수를 카운트합니다.
+
+활용: "오전 10시 30분에는 평균적으로 대기실에 15명이 앉아 있다"는 수치를 도출합니다. 만약 의자가 10개뿐이라면, 이때가 바로 혼잡 위험 시간입니다.
+
+2. '혼잡 유발자'와 '혼잡 피해자' 구분
+연령대별 분석 결과와 연결하여 인력 배치를 최적화합니다.
+
+혼잡 유발자(진료 시간이 긴 그룹): 우리 데이터에서 55-79세는 진료 시간이 길고 비중도 높습니다. 이들이 몰리는 시간대에는 대기실 회전율이 급격히 떨어집니다.
+
+혼잡 피해자(이탈에 민감한 그룹): 15-24세는 혼잡도가 높아 대기가 길어지면 바로 이탈(Churn)로 이어집니다.
+
+전략: 15-24세 예약은 최대한 '혼잡 유발 그룹'과 겹치지 않게 분산 배치하거나, 이들이 올 때는 행정 처리를 전담할 인력을 추가 배치합니다.
+
+
+```{r Waiting Room Congestion Analysis}
+# 1. Filter only actual visits ("attended") and calculate congestion index
+real_congestion_analysis <- past_appointments %>%
+  filter(status == "attended") %>%  # Only include actual visits
+  mutate(hour = format(as.POSIXct(appointment_time, format="%H:%M:%S"), "%H")) %>%
+  group_by(day_of_week, hour) %>%
+  summarise(
+    # Average stay time (waiting + appointment duration)
+    avg_stay = mean(waiting_time + appointment_duration, na.rm = TRUE),
+    # Number of patients present in the waiting area
+    patient_count = n(),
+    .groups = 'drop'
+  ) %>%
+  # Compute congestion index
+  mutate(congestion_index = avg_stay * patient_count)
+
+# 2. Visualization: Heatmap of actual patient congestion
+ggplot(real_congestion_analysis, aes(x = hour, y = day_of_week, fill = congestion_index)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "#6a0dad") +  # Dark purple highlights high congestion
+  labs(
+    title = "Waiting Room Congestion Analysis (Actual Visits Only)",
+    subtitle = "Excludes no-shows and cancellations; shows real-time patient load",
+    x = "Appointment Hour",
+    y = "Day of Week",
+    fill = "Congestion Index"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(face = "bold")
+  )
+
+```
+
+
+
+
+저녁에 대기실 혼잡도가 올라가는데 그 이유 예측
+- 오전부터 쌓인 고객이 눈덩이처럼 불어나서?
+- 오후 시간대에 유독 진료시간이 긴 연령대 (50-70대)가 몰려서?
+- 예약을 capacity 보다 많이 받아서?
+
+```{r congestion_cause_analysis}
+
+# Hourly Congestion Cause Analysis
+# Checks if increasing waiting time is due to accumulated patients, longer appointments, or overbooking
+
+# Hourly detailed metrics
+congestion_cause <- past_appointments %>%
+  mutate(hour = format(as.POSIXct(appointment_time, format="%H:%M:%S"), "%H")) %>%
+  group_by(hour) %>%
+  summarise(
+    avg_waiting = mean(waiting_time, na.rm = TRUE),          # Average waiting time
+    avg_duration = mean(appointment_duration, na.rm = TRUE), # Average appointment duration
+    patient_count = n(),                                     # Number of scheduled patients
+    .groups = 'drop'
+  )
+
+# Visualization: Compare waiting time vs patient count vs appointment duration
+ggplot(congestion_cause, aes(x = hour)) +
+  geom_line(aes(y = avg_waiting, color = "Average Waiting Time"), size = 1.2, group = 1) +
+  geom_line(aes(y = patient_count, color = "Scheduled Patients"), size = 1.2, group = 1, linetype = "dashed") +
+  geom_line(aes(y = avg_duration, color = "Average Appointment Duration"), size = 1.2, group = 1) +
+  scale_color_manual(values = c("Average Waiting Time" = "red", 
+                                "Scheduled Patients" = "blue", 
+                                "Average Appointment Duration" = "darkgreen")) +
+  labs(
+    title = "Hourly Congestion Cause Analysis",
+    subtitle = "Check if waiting time (red) rises faster than patient count (blue) or appointment duration (green)",
+    x = "Hour", y = "Metric (minutes/patients)", color = "Metric"
+  ) +
+  theme_minimal()
+```
+
+시각화 보정: avg_waiting과 avg_duration만 따로 떼어낸 그래프 필요요. 현재는 patient_count의 숫자가 너무 커서 대기 시간의 미세한 변화(예: 10분에서 20분으로 증가)가 그래프에 반영되지 않는 부분 반영
+
+
+```{r congestion_cause_dual_axis}
+# Detailed Congestion Analysis with Dual Axis
+# Left axis: Number of scheduled patients (bar)
+# Right axis: Time metrics (avg waiting & appointment duration) scaled with coefficient
+
+# 1. Summarize hourly metrics
+congestion_cause_fixed <- past_appointments %>%
+  mutate(hour = format(as.POSIXct(appointment_time, format="%H:%M:%S"), "%H")) %>%
+  group_by(hour) %>%
+  summarise(
+    avg_waiting = mean(waiting_time, na.rm = TRUE),        # Average waiting time (minutes)
+    avg_duration = mean(appointment_duration, na.rm = TRUE), # Average appointment duration (minutes)
+    patient_count = n(),                                   # Number of scheduled patients
+    .groups = 'drop'
+  )
+
+# 2. Coefficient to scale time metrics for dual axis
+coeff <- 200
+
+# 3. Dual axis plot (bar + line)
+ggplot(congestion_cause_fixed, aes(x = hour)) +
+  # Left axis: patient count
+  geom_bar(aes(y = patient_count), stat = "identity", fill = "steelblue", alpha = 0.3) +
+  
+  # Right axis: waiting & appointment duration (scaled)
+  geom_line(aes(y = avg_waiting * coeff, color = "Average Waiting Time", group = 1), size = 1.2) +
+  geom_line(aes(y = avg_duration * coeff, color = "Average Appointment Duration", group = 1), size = 1.2) +
+  
+  # Dual axis configuration
+  scale_y_continuous(
+    name = "Scheduled Patients (count)",
+    sec.axis = sec_axis(trans = ~ . / coeff, name = "Time (minutes)")
+  ) +
+  
+  scale_color_manual(values = c("Average Waiting Time" = "red", "Average Appointment Duration" = "darkgreen")) +
+  labs(
+    title = "Detailed Waiting Room Congestion Analysis (Dual Axis)",
+    subtitle = "Bars show patient count; lines show waiting and appointment time scaled",
+    x = "Hour", color = "Time Metrics (Right Axis)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.title.y.left = element_text(color = "steelblue", face = "bold"),
+    axis.title.y.right = element_text(color = "red", face = "bold"),
+    text = element_text(family = "Arial") # Replace with system font if needed
+  )
+
+# Optional: zoom-in on patient count for better variation visualization
+ggplot(congestion_cause_fixed, aes(x = hour)) +
+  geom_bar(aes(y = patient_count), stat = "identity", fill = "steelblue", alpha = 0.3) +
+  coord_cartesian(ylim = c(min(congestion_cause_fixed$patient_count) * 0.9, 
+                           max(congestion_cause_fixed$patient_count) * 1.1))
+```
+
+1. 레드 라인(평균 대기시간)의 무서운 우상향
+현상: 오전 8시에는 약 15분 내외였던 대기 시간이 시간이 흐를수록 직선적으로 상승하여, 오후 17시에는 70분 가깝게 치솟습니다.
+
+해석: 이는 전형적인 **'눈덩이 효과(Snowball Effect)'**입니다. 환자 수(patient_count)는 전 시간대 약 11,000명 수준으로 일정한데 대기 시간만 늘어난다는 것은, 시스템이 환자를 처리하는 속도보다 예약이 들어오는 속도가 미세하게 빨라 지연이 매시간 복리로 쌓이고 있음을 의미합니다.
+
+2. 그린 라인(평균 진료시간)의 안정성
+현상: 진료 시간은 전 시간대 약 20분 내외로 매우 일정하게 유지됩니다.
+
+해석: 의료진은 매시간 성실하고 일정하게 진료를 보고 있습니다. 즉, 혼잡의 원인은 "의사가 진료를 늦게 봐서"가 아니라, "예약 슬롯 간격이 너무 촘촘해서" 발생하는 시스템 설계의 문제입니다.
+
+3. 히트맵(image_c434f8.png)과의 연결고리 확인
+오후 15시~17시의 혼잡 지수가 왜 125,000 이상으로 짙은 보라색이었는지 이제 설명이 됩니다. 환자 수는 오전과 같지만, 개별 환자가 대기실에 머무는 시간(Waiting Time)이 4배 이상(15분 → 70분) 늘어났기 때문에 대기실 밀도가 폭발한 것입니다.
+
+
+
+
+
+
+혼잡도와 대기시간의 역설
+오후 시간대 과부하: 환자 수는 모든 시간대에 1,700명 선으로 일정함에도 불구하고, **혼잡 지수(Load)**는 오후 3시(15시)를 기점으로 급격히 상승하여 오후 5시에 최고조에 달합니다.
+
+누적 지연 효과: 이는 환자가 더 많이 와서가 아니라, 오전부터 처리되지 못한 대기 인원이 오후에 쌓이는 **'병목 현상(Snowball Effect)'**이 발생하고 있다는 증거입니다.
+
+예약 최적화시간당 2,240건의 예약 캡(Cap)을 실제 처리 능력인 1,800건 수준으로 하향 조정하여 노쇼 관리 강화인력 탄력 운용
+
+혼잡 지수가 폭발하는 오후 3시~5시에 행정 및 지원 인력을 금요일 수준으로 보강
+
+3. 요일별 운영 효율성 차이
+금요일의 높은 효율성: 금요일은 실제 진료 환자가 가장 많음에도 불구하고(17,050명), 평균 대기시간은 42.0분으로 모든 요일 중 가장 짧습니다.
+
+목요일의 병목 심화: 반면 목요일은 환자 수가 금요일보다 적음에도 대기시간이 44.9분으로 가장 깁니다. 목요일의 인력 배치나 진료 프로세스에 비효율적인 구간이 있을 가능성이 큽니다.
+
+
+1. 개별 환자가 아닌 '전체 대기실'의 관점우리 병원은 시간당 약 1,700명의 환자를 진료합니다. 이 인원에게 2.9분의 차이를 대입하면 수치가 완전히 달라집니다.시간당 절약되는 총 대기 시간: $1,700 \text{명} \times 2.9 \text{분} \approx 4,930 \text{분}$ (약 82시간)하루 전체(10시간)로 환산: 하루에 약 820시간의 대기 시간이 금요일에는 목요일보다 덜 발생하고 있는 셈입니다.즉, 대기실 의자 하나에 머무는 시간이 아주 조금씩 짧아지면서 대기실 전체의 '혼잡 밀도'를 낮추는 효과는 2.9분 그 이상입니다.
+
+
+1. 연령대별 예약 요일 및 시간대 집중도 분석 코드
+이 코드는 연령대를 그룹화하여 특정 시간대와 요일에 어떤 층이 더 많이 나타나는지 **비중(Percentage)**으로 보여줍니다. -> 향후 프로모션을 통해 연령대별로 예약 시간 유도 가능능
+
+```{r age_group_time_preference}
+
+# Age Group Preference Analysis by Hour & Day of Week
+# Identify top booking slots per age group
+
+# 1. Extract hour and age group, then summarize booking counts
+age_trend_analysis <- past_appointments %>%
+  mutate(
+    hour = format(as.POSIXct(appointment_time, format="%H:%M:%S"), "%H"),
+    age_group = case_when(
+      age <= 24 ~ "15-24 (Youth)",
+      age >= 25 & age <= 54 ~ "25-54 (Adult)",
+      age >= 55 ~ "55+ (Senior)",
+      TRUE ~ "Other"
+    )
+  ) %>%
+  group_by(age_group, day_of_week, hour) %>%
+  summarise(booking_count = n(), .groups = 'drop')
+
+# 2. Show top 5 preferred booking slots per age group
+age_trend_analysis %>%
+  group_by(age_group) %>%
+  slice_max(order_by = booking_count, n = 5) %>%
+  arrange(age_group, desc(booking_count))
+```
+
+
+시각화
+```{r age_group_time_preference_visualisation}
+# Senior Core Target Booking Trends (Age 55-79)
+# Heatmap of preferred booking hours by day of week
+# Highlight peak slots for high-volume senior patients
+
+# 1. Filter core target (55-79 years) and prepare data
+core_target_trend <- past_appointments %>%
+  filter(age >= 55 & age <= 79) %>%
+  mutate(
+    hour = format(as.POSIXct(appointment_time, format="%H:%M:%S"), "%H"),
+    day_of_week = factor(day_of_week, levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"))
+  ) %>%
+  group_by(day_of_week, hour) %>%
+  summarise(booking_count = n(), .groups = 'drop')
+
+# 2. Heatmap visualization of senior booking concentration
+ggplot(core_target_trend, aes(x = hour, y = day_of_week, fill = booking_count)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "#f7fbff", high = "#08306b") +
+  labs(
+    title = "Booking Preferences of Core Senior Patients (55-79)",
+    subtitle = "Darker shades indicate higher booking concentration in that slot",
+    x = "Appointment Hour", y = "Day of Week", fill = "Booking Count"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0))
+
+# 3. Top 10 peak booking slots (numeric check)
+core_target_trend %>%
+  arrange(desc(booking_count)) %>%
+  head(10) %>%
+  print()
+
+```
+
+
+고령층 55-79세 예약을 아침으로 유도 마케팅 시뮬레이션
+```{r senior_morning_shift_sim}
+# Senior Morning Shift Simulation (Age 55-79)
+# Scenario: redistribute peak afternoon bookings to morning
+# Goal: reduce congestion around 14-16h by ~15% and utilize morning slots
+
+# 1. Simulation data: Thursday & Friday, actual attended patients
+sim_data <- real_congestion_analysis %>%
+  filter(day_of_week %in% c("Thursday", "Friday")) %>%
+  mutate(type = "Current (As-Is)")
+
+# 2. Scenario application (To-Be)
+# 20% of 14-16h senior bookings shifted to 08-10h
+sim_to_be <- sim_data %>%
+  mutate(
+    type = "After Redistribution (To-Be)",
+    congestion_index = case_when(
+      hour %in% c("14", "15", "16") ~ congestion_index * 0.85, # reduce afternoon peak
+      hour %in% c("08", "09", "10") ~ congestion_index * 1.10, # increase morning utilization
+      TRUE ~ congestion_index
+    )
+  )
+
+# 3. Combine As-Is and To-Be data
+comparison_sim <- bind_rows(sim_data, sim_to_be)
+
+# 4. Visualization: congestion comparison before vs after redistribution
+ggplot(comparison_sim, aes(x = hour, y = congestion_index, color = type, group = type)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  facet_wrap(~day_of_week) +
+  scale_color_manual(values = c("Current (As-Is)" = "red", "After Redistribution (To-Be)" = "blue")) +
+  labs(
+    title = "Simulation: Morning Shift for Senior Patients (Thu/Fri)",
+    subtitle = "Shifting peak afternoon slots reduces congestion by ~15%",
+    x = "Hour", y = "Estimated Congestion Index (Load)", color = "Scenario"
+  ) +
+  theme_minimal()
+```
+그래도 2시에 잠깐 쉬어가는 시간이 좀 생기지만 여전히 5시에 병목현상
+
+이번엔 아침인력 저녁으로 재배치
+```{r staff_reallocation_sim}
+# Staff Reallocation Simulation (Morning Staff → Evening)
+# Scenario: redistribute staff from morning to 17:00 slot to reduce congestion
+# Goal: shorten 17:00 peak by ~20min without changing patient bookings
+
+# 1. Simulation data: Thursday & Friday
+sim_only_staff <- real_congestion_analysis %>%
+  filter(day_of_week %in% c("Thursday", "Friday")) %>%
+  mutate(type = "Current (As-Is)", load = congestion_index) %>%
+  bind_rows(
+    real_congestion_analysis %>%
+      filter(day_of_week %in% c("Thursday", "Friday")) %>%
+      mutate(
+        type = "Staff Reallocated (To-Be)",
+        load = case_when(
+          # Afternoon 5pm (17h): morning staff join, 25% reduction in congestion
+          hour == "17" ~ congestion_index * 0.75,
+          # Morning 8-10h: staff moved to afternoon, congestion increases 10%
+          hour %in% c("08", "09", "10") ~ congestion_index * 1.10,
+          # Other hours remain unchanged
+          TRUE ~ congestion_index
+        )
+      )
+  )
+
+# 2. Labels for 17:00 reduction effect (Thu: -21.4min, Fri: -20.5min)
+staff_labels <- sim_only_staff %>%
+  filter(type == "Staff Reallocated (To-Be)", hour == "17") %>%
+  mutate(label_text = ifelse(day_of_week == "Thursday", "-21.4분", "-20.5분"))
+
+# 3. Visualization: As-Is vs Staff Reallocation
+ggplot(sim_only_staff, aes(x = hour, y = load, color = type, group = type)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  # Show reduction label only at 17:00
+  geom_text(data = staff_labels, aes(label = label_text), 
+            vjust = 2.5, fontface = "bold", size = 5, show.legend = FALSE) +
+  facet_wrap(~day_of_week) +
+  scale_color_manual(values = c("Current (As-Is)" = "red", "Staff Reallocated (To-Be)" = "blue")) +
+  labs(
+    title = "Simulation: Staff Reallocation Effect",
+    subtitle = "Adjusting staff schedule alone shortens 17:00 peak by ~20min",
+    x = "Hour", y = "Congestion Index (Load)", color = "Scenario"
+  ) +
+  theme_minimal()
+```
+
+
+17시로 인력을투입하는건 너무 늦는듯, 그전에 미리 투입해야 대기 막을수 있음
+```{r advanced_staff_forward_deployment}
+
+# Advanced Staff Forward Deployment Simulation
+# Scenario: proactively deploy staff starting from early bottleneck hours (14:00–17:00)
+# Objective: prevent cumulative congestion buildup in the late afternoon peak
+
+# 1. Simulation data preparation (forward staff deployment scenario)
+sim_advanced_staff <- real_congestion_analysis %>%
+  filter(day_of_week %in% c("Thursday", "Friday")) %>%
+  mutate(type = "Current (As-Is)", load = congestion_index) %>%
+  bind_rows(
+    real_congestion_analysis %>%
+      filter(day_of_week %in% c("Thursday", "Friday")) %>%
+      mutate(
+        type = "Forward Staff Deployment (To-Be)",
+        load = case_when(
+          # 1. 14:00–17:00: proactive staffing before peak (20% capacity improvement)
+          hour %in% c("14", "15", "16", "17") ~ congestion_index * 0.80,
+          
+          # 2. 08:00–10:00: slight load increase due to staff reallocation (+10%)
+          hour %in% c("08", "09", "10") ~ congestion_index * 1.10,
+          
+          # 3. Other hours unchanged
+          TRUE ~ congestion_index
+        )
+      )
+  )
+
+# 2. Labels to highlight key intervention points (14:00 and 17:00)
+improvement_labels <- sim_advanced_staff %>%
+  filter(type == "Forward Staff Deployment (To-Be)", hour %in% c("14", "17")) %>%
+  mutate(label_text = case_when(
+    hour == "14" ~ "Intervention Starts",
+    hour == "17" ~ "Cumulative Effect"
+  ))
+
+# 3. Visualization: forward deployment effect
+ggplot(sim_advanced_staff, aes(x = hour, y = load, color = type, group = type)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 3) +
+  # Highlight intervention start and final effect
+  geom_text(
+    data = improvement_labels,
+    aes(label = label_text),
+    vjust = -1.5,
+    fontface = "bold",
+    size = 4,
+    show.legend = FALSE
+  ) +
+  facet_wrap(~day_of_week) +
+  scale_color_manual(
+    values = c("Current (As-Is)" = "red",
+               "Forward Staff Deployment (To-Be)" = "#2E8B57")
+  ) +
+  labs(
+    title = "Simulation: Forward Staff Deployment from 14:00",
+    subtitle = "Proactive staffing prevents cumulative congestion buildup in the afternoon peak",
+    x = "Hour",
+    y = "Congestion Index (Load)",
+    color = "Scenario"
+  ) +
+  theme_minimal()
+
+```
+
+14시 전진배치 + 마케팅으로 고령층 55-79 아침예약 유도 [월-금]
+```{r integrated_marketing_staff_sim}
+
+# Integrated Optimization Simulation: Marketing + Staff Forward Deployment
+# Scenario: combine senior morning shift marketing with proactive staff deployment
+# Goal: achieve compounded congestion reduction in afternoon peak hours
+
+# 1. Create integrated simulation dataset
+sim_marketing_staff <- real_congestion_analysis %>%
+  mutate(day_of_week = factor(day_of_week,
+                              levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday"))) %>%
+  mutate(type = "Current (As-Is)", load = congestion_index) %>%
+  bind_rows(
+    real_congestion_analysis %>%
+      mutate(
+        day_of_week = factor(day_of_week,
+                             levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")),
+        type = "Integrated Optimization (To-Be)",
+        load = case_when(
+          # A. Marketing effect:
+          # Shift senior patients (55–79) to morning → 15% fewer afternoon bookings
+          # Combined with forward staff deployment → additional 20% capacity improvement
+          hour %in% c("14", "15", "16", "17") ~ (congestion_index * 0.85) * 0.80,
+          
+          # B. Morning impact:
+          # Increased senior inflow (+20%) + staff reallocation impact (+10%)
+          hour %in% c("08", "09", "10") ~ (congestion_index * 1.20) * 1.10,
+          
+          # C. Other hours unchanged
+          TRUE ~ congestion_index
+        )
+      )
+  )
+
+# 2. Label combined effect (average reduction at 14:00 and 17:00)
+# Assumes ~32% compounded improvement from marketing + staffing
+label_integrated <- sim_marketing_staff %>%
+  filter(type == "Integrated Optimization (To-Be)", hour %in% c("14", "17")) %>%
+  mutate(
+    time_saved = round(avg_stay * 0.32, 1),
+    label_text = paste0("-", time_saved, " min")
+  )
+
+# 3. Visualization: integrated strategy impact
+ggplot(sim_marketing_staff, aes(x = hour, y = load, color = type, group = type)) +
+  geom_line(size = 1.2) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_text(
+    data = label_integrated,
+    aes(label = label_text),
+    vjust = -1.5,
+    fontface = "bold",
+    size = 3,
+    show.legend = FALSE
+  ) +
+  facet_wrap(~day_of_week, nrow = 1) +
+  scale_color_manual(values = c(
+    "Current (As-Is)" = "red",
+    "Integrated Optimization (To-Be)" = "#8E44AD"
+  )) +
+  labs(
+    title = "Integrated Simulation: Marketing + Staff Forward Deployment",
+    subtitle = "Synergistic effect of senior morning shift and proactive staffing from 14:00",
+    x = "Hour",
+    y = "Congestion Index (Load)",
+    color = "Scenario"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+```
+
+
+
+
+
+
+
+
+
+
+시뮬레이션이 얼마나 효과가 있는지 숫자로 표현
+```{r Simulation data creation}
+# 1. Simulation data creation (Thursday & Friday at 5 PM)
+efficiency_check <- real_congestion_analysis %>%
+  filter(day_of_week %in% c("Thursday", "Friday"), hour == "17") %>%
+  mutate(
+    # [As-Is] Current average stay time
+    current_avg_stay = avg_stay,
+    
+    # [To-Be] Improved processing speed with 25% staff reinforcement
+    # Assumption: average stay time is reduced by 25%
+    simulated_avg_stay = avg_stay * 0.75,
+    
+    # Absolute time saved per patient (minutes)
+    time_saved = current_avg_stay - simulated_avg_stay
+  )
+
+# 2. Output: How many minutes patients leave earlier at 5 PM
+print("--- Time Reduction Effect from Staff Reallocation at 5 PM ---")
+print(
+  efficiency_check %>%
+    select(day_of_week, current_avg_stay, simulated_avg_stay, time_saved)
+)
+
+# 3. Summary metric: average time saved
+total_time_saved <- mean(efficiency_check$time_saved)
+
+```
+
+오후 14시 부터 인력 재배치 시 시간 단축 효과
+```{r Simulation data for forward staff deployment (2 PM – 5 PM)}
+
+# 1. Simulation data for forward staff deployment (2 PM – 5 PM)
+advanced_efficiency_check <- real_congestion_analysis %>%
+  # Focus on high-congestion afternoon hours (Thursday & Friday, 14–17)
+  filter(
+    day_of_week %in% c("Thursday", "Friday"),
+    hour %in% c("14", "15", "16", "17")
+  ) %>%
+  mutate(
+    # [As-Is] Current average stay time
+    current_avg_stay = avg_stay,
+    
+    # [To-Be] Improved processing speed with early staff deployment
+    # Assumption: 20% reduction in stay time from proactive staffing
+    # Rationale: preventing queue buildup is more effective than late intervention
+    simulated_avg_stay = avg_stay * 0.80,
+    
+    # Time saved per patient (minutes)
+    time_saved = current_avg_stay - simulated_avg_stay
+  )
+
+# 2. Detailed output: time reduction by hour
+print("--- [Simulation] Time Savings from Forward Staff Deployment (2–5 PM) ---")
+print(
+  advanced_efficiency_check %>%
+    select(day_of_week, hour, current_avg_stay, simulated_avg_stay, time_saved) %>%
+    arrange(day_of_week, hour)
+)
+
+# 3. Aggregated performance metrics by day
+summary_stats <- advanced_efficiency_check %>%
+  group_by(day_of_week) %>%
+  summarise(
+    avg_reduction = mean(time_saved),        # average minutes saved
+    max_reduction = max(time_saved),        # maximum single-hour improvement
+    total_afternoon_gain = sum(time_saved), # cumulative time saved
+    .groups = 'drop'
+  )
+
+print("--- Summary: Overall Afternoon Efficiency Improvement ---")
+print(summary_stats)
+
+```
+
+
+
+이번엔 5일 변화 - 17시 투입
+```{r}
+# 1. Prepare simulation data with weekday ordering
+sim_all_week <- real_congestion_analysis %>%
+  # Order weekdays (assumes Monday–Friday only)
+  mutate(day_of_week = factor(
+    day_of_week,
+    levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
+  )) %>%
+  
+  # Current state (As-Is)
+  mutate(type = "Current (As-Is)", load = congestion_index) %>%
+  
+  # Bind simulation scenario (To-Be)
+  bind_rows(
+    real_congestion_analysis %>%
+      mutate(
+        day_of_week = factor(
+          day_of_week,
+          levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
+        ),
+        type = "After Staff Reallocation (To-Be)",
+        
+        # Strategy:
+        # - 집중 지원 at 5 PM (25% processing capacity improvement)
+        # - Partial staff pull from 8–10 AM (10% load increase)
+        load = case_when(
+          hour == "17" ~ congestion_index * 0.75,
+          hour %in% c("08", "09", "10") ~ congestion_index * 1.10,
+          TRUE ~ congestion_index
+        )
+      )
+  )
+
+# 2. Calculate time savings at 5 PM by weekday (for labeling)
+label_all <- sim_all_week %>%
+  filter(type == "After Staff Reallocation (To-Be)", hour == "17") %>%
+  mutate(
+    time_saved = round(avg_stay * 0.25, 1),
+    label_text = paste0("-", time_saved, " min")
+  )
+
+# 3. Visualization
+ggplot(sim_all_week, aes(x = hour, y = load, color = type, group = type)) +
+  geom_line(size = 1.1) +
+  geom_point(size = 2, alpha = 0.6) +
+  
+  # Display time reduction at 5 PM for each weekday
+  geom_text(
+    data = label_all,
+    aes(label = label_text),
+    vjust = 2.5,
+    fontface = "bold",
+    size = 3.5,
+    show.legend = FALSE
+  ) +
+  
+  facet_wrap(~day_of_week, nrow = 1) +
+  scale_color_manual(
+    values = c(
+      "Current (As-Is)" = "red",
+      "After Staff Reallocation (To-Be)" = "blue"
+    )
+  ) +
+  labs(
+    title = "Weekday Staff Reallocation Impact Simulation",
+    subtitle = "Peak-hour (5 PM) congestion reduction across weekdays",
+    x = "Hour of Day",
+    y = "Congestion Index (Load)",
+    color = "Scenario"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+
+
+이번엔 5일 변화 - 14시 투입
+```{r}
+# 1. Apply weekday ordering and proactive staff deployment scenario (from 2 PM)
+sim_all_week_advanced <- real_congestion_analysis %>%
+  # Weekday ordering
+  mutate(day_of_week = factor(
+    day_of_week,
+    levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
+  )) %>%
+  
+  # Current state (As-Is)
+  mutate(type = "Current (As-Is)", load = congestion_index) %>%
+  
+  # Bind simulation scenario (To-Be)
+  bind_rows(
+    real_congestion_analysis %>%
+      mutate(
+        day_of_week = factor(
+          day_of_week,
+          levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday")
+        ),
+        type = "Proactive Staff Deployment (To-Be)",
+        
+        # Strategy:
+        # - Proactive staffing from 2–5 PM (20% load reduction)
+        # - Partial staff pull from 8–10 AM (10% load increase)
+        load = case_when(
+          hour %in% c("14", "15", "16", "17") ~ congestion_index * 0.80,
+          hour %in% c("08", "09", "10") ~ congestion_index * 1.10,
+          TRUE ~ congestion_index
+        )
+      )
+  )
+
+# 2. Calculate impact metrics (labeling key intervention points)
+# Highlight 2 PM (intervention start) and 5 PM (final peak impact)
+label_advanced <- sim_all_week_advanced %>%
+  filter(type == "Proactive Staff Deployment (To-Be)", hour %in% c("14", "17")) %>%
+  mutate(
+    time_saved = round(avg_stay * 0.20, 1),
+    label_text = paste0("-", time_saved, " min")
+  )
+
+# 3. Visualization
+ggplot(sim_all_week_advanced, aes(x = hour, y = load, color = type, group = type)) +
+  geom_line(size = 1.1) +
+  geom_point(size = 2, alpha = 0.6) +
+  
+  # Display time reduction at 2 PM and 5 PM for each weekday
+  geom_text(
+    data = label_advanced,
+    aes(label = label_text),
+    vjust = -1.5,
+    fontface = "bold",
+    size = 3,
+    show.legend = FALSE
+  ) +
+  
+  facet_wrap(~day_of_week, nrow = 1) +
+  scale_color_manual(
+    values = c(
+      "Current (As-Is)" = "red",
+      "Proactive Staff Deployment (To-Be)" = "#2E8B57"
+    )
+  ) +
+  labs(
+    title = "Impact of Proactive Staff Deployment Across Weekdays",
+    subtitle = "Early intervention from 2 PM reduces cumulative afternoon congestion",
+    x = "Hour of Day",
+    y = "Congestion Index (Load)",
+    color = "Scenario"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom"
+  )
+
+```
+
+
+
+
+어떻게 하는게 효율적일까?
+1. 월~금 인력만 재배치 했을때
+
+2. 월~금 인력재배치 + 고객 예약 아침으로 유도
+
+ 
+
+```{r}
+# 1. Calculate metrics by scenario
+efficiency_table <- real_congestion_analysis %>%
+  # Exclude weekends
+  filter(!day_of_week %in% c("Saturday", "Sunday")) %>%
+  mutate(
+    # [A] Staff-only reallocation scenario
+    load_staff_only = case_when(
+      hour == "17" ~ congestion_index * 0.75,
+      hour %in% c("08", "09", "10") ~ congestion_index * 1.10,
+      TRUE ~ congestion_index
+    ),
+    
+    # [B] Integrated scenario: staff reallocation + appointment shift (marketing)
+    load_integrated = case_when(
+      hour == "17" ~ congestion_index * 0.75,
+      hour %in% c("14", "15", "16") ~ congestion_index * 0.85,  # additional demand-shift effect
+      hour %in% c("08", "09", "10") ~ (congestion_index * 1.10) * 1.10,
+      TRUE ~ congestion_index
+    )
+  ) %>%
+  
+  # 2. Incremental congestion reduction driven by marketing (appointment shift)
+  mutate(
+    marketing_gain = load_staff_only - load_integrated,
+    gain_percent = ifelse(load_staff_only > 0,
+                          (marketing_gain / load_staff_only) * 100,
+                          0)
+  )
+
+# 3. Summary report for key afternoon hours (2–5 PM)
+summary_report <- efficiency_table %>%
+  filter(hour %in% c("14", "15", "16", "17")) %>%
+  group_by(hour) %>%
+  summarise(
+    avg_baseline_congestion = mean(congestion_index),
+    staff_only_scenario = mean(load_staff_only),
+    integrated_strategy = mean(load_integrated),
+    incremental_marketing_gain_pct = mean(gain_percent)
+  )
+
+print(summary_report)
+
+```
+
+
+대기실 혼잡도를 조정하기 위해서는 손님을 옮길게 아니라 오전에 여유로운 시간대의 인력을 오후로 옮기던가 아니면 오후에 학생등 아르바이트를 쓰는것이 효율 적!
+
+
+
+
+Tableau Dashboard 제작을 위한 CSV 파일 저장
+```{r CSV_file-appointments}
+status_summary <- appointments %>%
+  count(status)
+write.csv(status_summary, "status_summary.csv", row.names = FALSE)
+
+```
+
+```{r CSV_file-Season_noshow}
+write.csv(season_final_analysis, "season_noshow_summary.csv", row.names = FALSE)
+
+```
+
+```{r}
+write.csv(no_show_counts, "no_show_counts.csv", row.names = FALSE)
+```
+
+```{r}
+write.csv(past_appointments, "past_appointments.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
