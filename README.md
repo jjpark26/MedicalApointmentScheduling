@@ -1,2 +1,17 @@
 # MedicalApointmentScheduling
 Medical appointment scheduling data analysis project focused on no-show prediction and operational insights using R
+
+## Dataset
+Synthetic dataset simulating appointment scheduling in a medical clinic, including patient demographics, appointment slots, and attendance status.
+
+## Analysis
+- Data preprocessing and feature engineering
+- Exploratory data analysis (EDA)
+- Logistic regression modeling to predict no-shows
+- Business insights and recommendations
+
+## How to run
+Open the R Markdown file `analysis.Rmd` in RStudio and knit to HTML or PDF to reproduce the analysis.
+
+## Contact
+For questions, please contact [your_email@example.com]
