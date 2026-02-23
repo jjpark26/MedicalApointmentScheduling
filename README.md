@@ -28,3 +28,12 @@ The analysis script generates the following summary files:
 ## 🚀 How to Run
 1. Clone this repository.
 2. Open the `Medical-appointment-scheduling-system--Eng-.html` file in any web browser to view the complete analysis results and visualizations.
+
+
+## 📚 Dataset & Attribution
+The dataset used in this project is the **Medical Appointment Scheduling System** provided by **Carolina Gonzalez Galtier** via Kaggle.
+
+- **Data Source**: [Kaggle - Medical Appointment Scheduling System](https://www.kaggle.com/datasets/carogonzalezgaltier/medical-appointment-scheduling-system)
+- **License**: [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+
+*This project is for educational/research purposes and follows the non-commercial and attribution requirements of the original dataset creator.*
