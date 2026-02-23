@@ -5,7 +5,11 @@ date: "2026-02-14"
 output:
   html_document: default
   pdf_document: default
+# Data Source: Kaggle (Carolina Gonzalez Galtier)
+# License: CC BY-NC-SA 4.0
+# Description: Analysis of patient no-show patterns and seasonal trends.
 ---
+
 
 
 
@@ -2862,6 +2866,7 @@ write.csv(no_show_counts, "no_show_counts.csv", row.names = FALSE)
 ```{r}
 write.csv(past_appointments, "past_appointments.csv", row.names = FALSE)
 ```
+
 
 
 
