@@ -14,4 +14,4 @@ Synthetic dataset simulating appointment scheduling in a medical clinic, includi
 Open the R Markdown file `analysis.Rmd` in RStudio and knit to HTML or PDF to reproduce the analysis.
 
 ## Contact
-For questions, please contact [your_email@example.com]
+For questions, please contact [jay26park@gmail.com]
