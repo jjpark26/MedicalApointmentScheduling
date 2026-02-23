@@ -1,39 +1,30 @@
-Medical Appointment Scheduling System Analysis
-This repository contains a data analysis project focused on understanding patient "No-show" patterns in medical appointments to improve scheduling efficiency.
+# Medical Appointment Scheduling System Analysis
 
-📋 Project Overview
-Author: Jaehui Park
+This project analyzes a medical appointment dataset to identify patterns behind patient "No-shows" and provides insights for better scheduling management.
 
-Date: February 14, 2026
+## 📋 Project Overview
+- **Author**: Jaehui Park
+- **Date**: February 14, 2026
+- **Objective**: To analyze historical appointment data and determine the factors influencing whether patients attend their scheduled visits.
 
-Objective: To identify key factors contributing to appointment no-shows and derive actionable insights through statistical analysis.
+## 🛠 Tech Stack
+- **Language**: R
+- **Reporting**: R Markdown (Pandoc)
+- **Visuals**: Interactive HTML Report
 
-🛠 Tech Stack
-Language: R (for data processing and statistical analysis)
+## 📊 Key Analysis Features
+The analysis includes the following components:
+1. **Appointment Status Summary**: Statistical breakdown of kept vs. missed appointments.
+2. **Seasonal No-show Trends**: Analysis of how different seasons (Spring, Summer, Fall, Winter) affect appointment attendance.
+3. **Patient Attendance History**: Tracking individual patient behavior and past no-show counts to predict future reliability.
 
-Reporting: R Markdown rendered via Pandoc
+## 📂 Data Outputs
+The analysis script generates the following summary files:
+- `status_summary.csv`: General statistics on appointment outcomes.
+- `season_noshow_summary.csv`: Attendance data grouped by season.
+- `no_show_counts.csv`: Frequency of no-shows per patient.
+- `past_appointments.csv`: Detailed record of patient appointment history.
 
-Libraries: (Includes jQuery for interactive HTML reporting)
-
-📊 Key Analysis Phases
-The project follows a structured data analysis workflow:
-
-Status Summary: Analyzing the distribution of appointment statuses (Completed vs. No-show).
-
-Seasonal Analysis: Investigating how no-show rates fluctuate across different seasons.
-
-Patient History Tracking: Quantifying past no-show counts to predict future attendance behavior.
-
-📂 Data Outputs
-The analysis generates several structured CSV files for further reporting:
-
-status_summary.csv: Summary of all appointment statuses.
-
-season_noshow_summary.csv: Seasonal breakdown of no-show data.
-
-no_show_counts.csv: Frequency analysis of patient-specific no-shows.
-
-past_appointments.csv: Historical data on previous medical visits.
-
-🚀 How to View
-The final analysis report is provided as an interactive HTML file. Simply open Medical-appointment-scheduling-system--Eng-.html in any web browser to view the full report, including code and visualizations.
+## 🚀 How to Run
+1. Clone this repository.
+2. Open the `Medical-appointment-scheduling-system--Eng-.html` file in any web browser to view the complete analysis results and visualizations.
