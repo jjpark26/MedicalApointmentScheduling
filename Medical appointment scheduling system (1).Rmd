@@ -55,14 +55,11 @@ library(scales)
 
 Data Loading
 ```{r Data Loading}
-
-slots <- read_csv("C:/Users/Jaehui Park/Desktop/Portfolio/1) Data/1) Medical Appointment Scheduling system/slots.csv")
-
-patients <- read_csv("C:/Users/Jaehui Park/Desktop/Portfolio/1) Data/1) Medical Appointment Scheduling system/patients.csv")
-
-
-appointments <- read_csv("C:/Users/Jaehui Park/Desktop/Portfolio/1) Data/1) Medical Appointment Scheduling system/appointments.csv")
-
+# Load data using relative paths for portability
+# This ensures the code runs on any machine as long as the data folder exists
+slots <- read_csv("data/slots.csv")
+patients <- read_csv("data/patients.csv")
+appointments <- read_csv("data/appointments.csv")
 ```
 
 Data quality check: Primary Key Uniqueness
@@ -2866,6 +2863,7 @@ write.csv(no_show_counts, "no_show_counts.csv", row.names = FALSE)
 ```{r}
 write.csv(past_appointments, "past_appointments.csv", row.names = FALSE)
 ```
+
 
 
 
