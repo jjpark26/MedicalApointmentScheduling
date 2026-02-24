@@ -1,0 +1,289 @@
+---
+title: "Medical Appointment Scheduling System ver.2_datacleaning"
+author: "Jaehui Park"
+date: "2026-02-24"
+output: html_document
+---
+
+# Data Source: Kaggle (Carolina Gonzalez Galtier)
+# License: CC BY-NC-SA 4.0
+# Description: Analysis of patient no-show patterns and seasonal trends.
+
+```{r setup, include=FALSE}
+# Global chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  include = TRUE,
+  message = FALSE, 
+  warning = FALSE
+)
+```
+
+Library
+```{r Library}
+library(tidyverse)
+
+library(readr)
+
+#install.packages("psych")
+library(psych)
+
+library(dplyr)
+
+library(lubridate)
+
+library(RColorBrewer)
+
+library(scales)
+
+```
+
+
+1. Data 
+
+Data Loading
+```{r Data Loading}
+
+slots <- read_csv("C:/Users/Jaehui Park/Desktop/Portfolio/1) Data/1) Medical Appointment Scheduling system/slots.csv")
+
+patients <- read_csv("C:/Users/Jaehui Park/Desktop/Portfolio/1) Data/1) Medical Appointment Scheduling system/patients.csv")
+
+
+appointments <- read_csv("C:/Users/Jaehui Park/Desktop/Portfolio/1) Data/1) Medical Appointment Scheduling system/appointments.csv")
+
+```
+
+Data quality check: Primary Key Uniqueness
+```{r Data Quality Check}
+## Data Quality Check: Primary Key Uniqueness
+nrow(appointments) == n_distinct(appointments$appointment_id)
+nrow(slots) == n_distinct(slots$slot_id)
+nrow(patients) == n_distinct(patients$patient_id)
+
+```
+
+Foreign key integrity
+```{r Foreign Key Integrity}
+## Data Quality Check: Foreign Key Integrity A.patient_ID = P.patient_ID
+
+orphan_appointments <- anti_join(
+  x = appointments,
+  y = patients,
+  by = "patient_id"
+)
+
+nrow(orphan_appointments)
+
+```
+
+
+```{r Foreign Key Integrity2}
+## Data Quality Check: Foreign Key Integrity A.slot_ID = S.slot_ID
+
+orphan_slots <- anti_join(
+  x = appointments,
+  y = slots,
+  by = "slot_id"
+)
+
+nrow(orphan_slots)
+
+```
+
+```{r Missing Values check}
+## Data Quality Check: Missing Values
+
+check_na <- function(df, table_name) {
+  cat("\n--- [", table_name, "] Missing Values ---\n")
+  colSums(is.na(df)) %>% print()
+}
+
+# Apply to core tables
+check_na(slots, "Slots")
+check_na(patients, "Patients")
+check_na(appointments, "Appointments")
+
+```
+
+
+```{r Visualize Appointment Status Counts}
+
+appointments %>%
+  count(status) %>%
+  ggplot(aes(x = reorder(status, n), y = n, fill = status)) +
+  geom_col() +
+  geom_text(aes(label = n), hjust = -0.2, size = 4) +
+  coord_flip() +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.15))) +
+  labs(title = "Appointment Status Distribution", x = "Status", y = "Count") +
+  theme_minimal()
+
+```
+
+Total Missing: 25,456
+Total (cancelled + did not attend + unknown + scheduled): 25,456
+Conclusion: Data is consistent and clean.
+
+
+The distribution of appointment statuses highlights the number of cancelled and no-show appointments, which can inform follow-up strategies and operational planning.
+
+```{r Master dataset, full_dataset}
+#Create a master dataset by joining appointment, patient, and slot data
+full_dataset <- appointments %>%
+  # Join patient-level information using patient_id
+  left_join(patients, by = "patient_id", suffix = c("", "_pat")) %>%
+  # Join slot-level information using slot_id
+  left_join(slots, by = "slot_id", suffix = c("", "_slot"))
+
+# Preview the structure of the combined dataset
+glimpse(full_dataset)
+
+```
+
+
+Check full_dataset
+```{r Check full_dataset}
+# Validate that the row count remains consistent after joining
+# The result should be TRUE
+nrow(appointments) == nrow(full_dataset)
+
+# Display row counts before and after the join for verification
+cat("Number of appointments:", nrow(appointments), "\n")
+cat("Number of rows of full_dataset:", nrow(full_dataset), "\n")
+
+```
+
+```{r check full_dataset2}
+# Check for missing values introduced after the joins
+full_dataset %>%
+  summarise(
+    missing_names = sum(is.na(name)),        # Unmatched patient records
+    missing_slots = sum(is.na(is_available)) # Unmatched slot records
+  )
+
+```
+
+
+```{r check full_dataset3}
+# Create a validation summary to review the join results
+join_validation <- data.frame(
+  Table = c("Appointments (Original)", "full_dataset(After join)"),
+  Row_Count = c(nrow(appointments), nrow(full_dataset)),
+  Col_Count = c(ncol(appointments), ncol(full_dataset))
+)
+
+print(join_validation)
+
+```
+
+
+```{r}
+# Identify new columns added to the dataset after the joins
+setdiff(colnames(full_dataset), colnames(appointments))
+
+```
+Data Merging Summary: Row count consistency (111,488) and column expansion (16 → 23) adding the following 7 new columns to the master dataset.
+
+```{r}
+# List all column names in the final merged dataset
+colnames(full_dataset)
+```
+
+Validated column redundancy: Merged fields with 100% identical values were removed to eliminate data duplication and optimize the master dataset
+
+```{r}
+# Check if redundant columns are 100% identical
+identical(full_dataset$sex, full_dataset$sex_pat)
+identical(full_dataset$appointment_date, full_dataset$appointment_date_slot)
+identical(full_dataset$appointment_time, full_dataset$appointment_time_slot)
+```
+Confirmed 100% matches for redundant fields.
+Removed sex_pat, appointment_date_slot, and appointment_time_slot to optimize the master dataset.
+
+```{r}
+# Remove redundant columns after identity verification
+full_dataset <- full_dataset %>%
+  select(-sex_pat, -appointment_date_slot, -appointment_time_slot)
+
+# Final check of the streamlined column list
+colnames(full_dataset)
+```
+
+
+
+```{r}
+# 1. Set the reference date (December 1, 2024)
+ref_date <- as.Date("2024-12-01")
+
+# 2. Past appointments (before the reference date)
+# Used for analyzing actual visits, cancellations, and no-shows
+past_appointments <- full_dataset %>%
+  filter(appointment_date < ref_date)
+
+# 3. Future appointments (on or after the reference date)
+# Used for forecasting hospital utilization or appointment fulfillment
+future_appointments <- full_dataset %>%
+  filter(appointment_date >= ref_date)
+
+# 4. Verify the data split
+cat("Total rows in full dataset:", nrow(full_dataset), "\n")
+cat("Rows in past appointments (analysis):", nrow(past_appointments), "\n")
+cat("Rows in future appointments (forecasting):", nrow(future_appointments), "\n")
+
+```
+
+
+The dataset was split into 'Past' and 'Future' records based on the reference date (December 1, 2024). Past data is used for analyzing historical performance, while future data is reserved for forecasting hospital demand.
+
+
+Check unique values for each relevant column
+
+```{r}
+# Identify and display unique values for all categorical columns at once
+# We select columns of type 'character' or 'factor' and map the unique function
+past_appointments %>%
+  select(status, sex, age_group, insurance) %>% # Select relevant categorical columns
+  map(unique) # Apply the unique() function to each selected column
+```
+Inspected unique values for categorical columns to understand the data distribution and identify distinct classes.
+
+
+```{r}
+# 1. Define the logical order for age-based categories
+# This prevents alphabetical sorting and maintains the natural age sequence
+age_levels <- c("15-19", "20-24", "25-29", "30-34", "35-39", "40-44", 
+                "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", 
+                "75-79", "80-84", "85-89", "90+")
+
+# 2. Transform character columns into structured factors
+# Assigning specific levels ensures consistent categorization and plotting order
+past_appointments <- past_appointments %>%
+  mutate(
+    status = factor(status, levels = c("attended", "did not attend", "cancelled", "unknown")),
+    sex = factor(sex, levels = c("Male", "Female")),
+    age_group = factor(age_group, levels = age_levels),
+    insurance = as.factor(insurance)
+  )
+
+# 3. Validate the distribution of categorical variables
+# Summary() now provides frequency counts for each factor level
+summary(past_appointments %>% select(status, sex, age_group, insurance))
+
+```
+
+
+Saving cleaned data, past_appointments
+```{r}
+# Create a dedicated directory for data storage if it doesn't already exist
+if (!dir.exists("data")) {
+  dir.create("data")
+}
+
+# Export the refined 'past_appointments' dataset to an RDS file
+# This ensures that all categorical sorting and data structures remain intact
+saveRDS(past_appointments, "data/cleaned_past_appointments.rds")
+```
+
+
+
+
