@@ -1,0 +1,316 @@
+---
+title: "Medical Appointment Scheduling System ver.2 Analysis"
+author: "Jaehui Park"
+date: "2026-02-24"
+output: html_document
+---
+# Data Source: Kaggle (Carolina Gonzalez Galtier)
+# License: CC BY-NC-SA 4.0
+# Description: Analysis of patient no-show patterns and seasonal trends.
+
+
+
+
+```{r setup, include=FALSE}
+# Global chunk options
+knitr::opts_chunk$set(
+  echo = TRUE,
+  include = TRUE,
+  message = FALSE, 
+  warning = FALSE
+)
+```
+
+
+```{r}
+# Load the pre-processed data
+past_appointments <- readRDS("data/cleaned_past_appointments.rds")
+
+```
+
+Analysis
+
+
+Hypothesis 1: No-show rates fluctuate depending on the appointment hour. Unlike 'cancelled' appointments, 'did not attend' cases represent a direct loss of revenue, making it critical to identify high-risk time periods.
+
+Method: Extracted the hour from appointment timestamps and calculated both the absolute count of 'did not attend' cases and their relative percentage to the total dataset.
+
+```{r Analysis 1 Time}
+library(tidyverse)
+# Calculate both counts and percentages for 'did not attend' cases
+# We divide the count of each hour by the total number of ALL appointments
+total_records <- nrow(past_appointments)
+
+no_show_summary <- past_appointments %>%
+  mutate(hour = hour(appointment_time)) %>%
+  filter(status == "did not attend") %>%
+  group_by(hour) %>%
+  summarise(
+    no_show_count = n(),
+    # Calculating the share of each hour relative to the entire dataset
+    percentage = (n() / total_records) * 100, 
+    .groups = 'drop'
+  )
+
+# Visualize with dual labels (Count and Percentage)
+ggplot(no_show_summary, aes(x = factor(hour), y = no_show_count)) +
+  geom_col(fill = "#E41A1C", alpha = 0.8) +
+  # Displaying "Count (Percentage%)" above each bar
+  geom_text(aes(label = paste0(no_show_count, "\n(", round(percentage, 1), "%)")), 
+            vjust = -0.2, 
+            lineheight = 0.9,
+            size = 3.5, fontface = "bold") +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) +
+  labs(title = "No-show Impact by Appointment Hour",
+       subtitle = "Displaying absolute counts and their percentage relative to total data",
+       x = "Appointment Hour", 
+       y = "Number of No-show Cases") +
+  theme_minimal()
+```
+Observation: No-show counts peak at 14:00 (738 cases), but this represents only 0.7% of the total dataset, which is a mere 0.1%p difference from the hourly average (0.6%).
+
+Conclusion: Appointment time is not a decisive factor in no-show behavior.
+
+
+
+
+
+
+Hypothesis 2: Certain days of the week (e.g., Mondays or Fridays) may have higher no-show rates due to long weekends or scheduling habits.
+
+Method: Extracted day names from appointment dates and aggregated "did not attend" cases.
+```{r Analysis 2 Day of Week}
+# Feature Engineering: Extract day of the week
+past_appointments <- past_appointments %>%
+  mutate(day_of_week = wday(appointment_date, label = TRUE, abbr = FALSE, week_start = 1))
+
+# Aggregate no-show counts by weekday
+no_show_by_day <- past_appointments %>%
+  filter(status == "did not attend") %>% 
+  group_by(day_of_week) %>%
+  summarise(no_show_count = n(), .groups = 'drop')
+
+# Visualization
+ggplot(no_show_by_day, aes(x = day_of_week, y = no_show_count)) +
+  geom_col(fill = "#E41A1C", alpha = 0.8, width = 0.7) + 
+  geom_text(aes(label = scales::comma(no_show_count)), 
+            vjust = -1.0, size = 5, fontface = "bold") + 
+  scale_y_continuous(expand = expansion(mult = c(0, 0.2))) + 
+  labs(title = "No-show Cases by Weekday",
+       x = "Day of the Week", y = "Number of Cases") +
+  theme_minimal(base_size = 14) +
+  theme(panel.grid.major.x = element_blank())
+```
+Observation: No-show cases remain highly consistent from Monday to Friday, ranging between 1,297 and 1,352 incidents. Tuesday recorded the highest volume (1,352), but only by a narrow margin.
+
+Conclusion: The Day of the Week is not a decisive factor for patient absenteeism.
+
+
+
+
+
+Hypothesis 3: No-show rates will vary by season due to weather conditions or holiday periods, with certain seasons showing higher absenteeism.
+
+Method: Grouped months into four seasons and calculated the no-show rate, total counts, and the daily average of no-show cases for each season.
+
+```{r noshow_rate-seasonal}
+# 1. Create season variable based on appointment month
+past_appointments <- past_appointments %>%
+  mutate(
+    month = month(appointment_date),
+    season = case_when(
+      month %in% c(3, 4, 5) ~ "Spring",
+      month %in% c(6, 7, 8) ~ "Summer",
+      month %in% c(9, 10, 11) ~ "Autumn",
+      TRUE ~ "Winter"
+    ),
+    season = factor(season, levels = c("Spring", "Summer", "Autumn", "Winter"))
+  )
+
+# 2. Summarize seasonal no-show statistics
+season_final_analysis <- past_appointments %>%
+  group_by(season) %>%
+  summarise(
+    total_days = n_distinct(appointment_date),
+    total_count = n(),
+    noshow_count = sum(status == "did not attend"),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    rate = (noshow_count / total_count) * 100,     # No-show rate (%)
+    avg_noshow = noshow_count / total_days         # Average no-show per day
+  )
+
+# 3. Visualize seasonal no-show patterns
+ggplot(season_final_analysis, aes(x = season, y = rate, fill = season)) +
+  geom_col(alpha = 0.8, width = 0.6) +
+  
+  # Top layer: No-show rate
+  geom_text(aes(label = sprintf("%.1f%%", rate)), 
+            vjust = -1.2, size = 5.5, fontface = "bold") +
+  
+  # Middle layer: Total no-shows / Total appointments
+  geom_text(aes(label = paste0(format(noshow_count, big.mark=","), 
+                               "\n———\n", 
+                               format(total_count, big.mark=","))), 
+            vjust = 2.5, size = 3.5, lineheight = 0.75) +
+  
+  # Bottom layer: Daily average no-shows
+  geom_text(aes(label = paste0("(Avg ", sprintf("%.1f", avg_noshow), " no-shows/day)")), 
+            vjust = 12, size = 3.2, fontface = "italic", color = "grey20") +
+  
+  scale_fill_manual(values = RColorBrewer::brewer.pal(4, "Set2")) +
+  scale_y_continuous(expand = expansion(mult = c(0, 0.6))) +  # Add top margin for text
+  labs(title = "Seasonal No-show Analysis",
+       subtitle = "Top: No-show rate / Middle: No-show count / Bottom: Avg daily no-shows",
+       x = "Season", y = "No-show Rate (%)") +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "none",
+        plot.title = element_text(face = "bold"))
+
+```
+
+Observation: The no-show rate is remarkably stable across all seasons, ranging from 5.6% to 6.3%. Spring recorded the highest rate (6.3%) with an average of 2.7 no-shows per day, while Winter showed the lowest (5.6%) with 2.4 per day. The maximum variance between seasons is only 0.7%p.
+
+Conclusion: Seasonality is not a decisive factor in no-show behavior.
+
+
+
+Hypothesis 4: The probability of a no-show will vary significantly depending on the specific combination of the season and the appointment hour.
+
+Method1: Performed a Chi-squared test to statistically verify whether the likelihood of a no-show is independent of the season-hour combination.
+Method2: Created a high-contrast heatmap to visualize which specific time-season intersections show the highest no-show rates.
+
+```{r}
+# 1. Statistical Testing
+table_season_status <- table(past_appointments$season, past_appointments$status)
+chisq_result <- chisq.test(table_season_status)
+p_val_text <- paste0("Chi-squared Test p-value: ", format.pval(chisq_result$p.value, digits = 3))
+
+# 2. Data Preparation
+seasonal_hour_noshow <- past_appointments %>%
+  mutate(hour = hour(appointment_time)) %>%
+  group_by(season, hour) %>%
+  summarise(
+    noshow_count = sum(status == "did not attend"),
+    total_count = n(),
+    rate = (noshow_count / total_count) * 100,
+    .groups = 'drop'
+  )
+
+# 3. Visualization (Named specifically after the analysis content)
+seasonal_hourly_noshow_plot <- ggplot(seasonal_hour_noshow, aes(x = factor(hour), y = season, fill = rate)) +
+  geom_tile(color = "white", size = 0.5) +
+  geom_text(aes(label = noshow_count), size = 3.5, fontface = "bold") +
+  scale_fill_distiller(palette = "YlOrRd", direction = 1) +
+  labs(
+    title = "No-show Probabilities: Interaction between Season and Hour",
+    subtitle = paste0("Statistical significance confirmed | ", p_val_text),
+    x = "Appointment Hour",
+    y = "Season",
+    fill = "No-show Rate (%)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    axis.text = element_text(face = "bold"),
+    plot.title = element_text(face = "bold", margin = margin(b = 10)),
+    panel.grid = element_blank(),
+    legend.position = "bottom",
+    plot.margin = margin(10, 20, 10, 10)
+  )
+
+# Display the plot
+print(seasonal_hourly_noshow_plot)
+
+# Save with a descriptive filename
+ggsave("seasonal_hourly_noshow_analysis.png", seasonal_hourly_noshow_plot, width = 10, height = 6)
+```
+
+Observation: The Chi-squared test confirms a statistically significant relationship (p-value: 0.00145) between season/hour and no-show occurrences. The heatmap clearly identifies Spring at 14:00 as the most critical peak with 211 cases, followed by Autumn at 11:00 (195 cases) and Spring at 12:00 (193 cases). In contrast, the lowest volume was recorded in Winter at 17:00 (130 cases).
+
+Conclusion (Final): The hypothesis is statistically supported (p=0.00145), proving that timing is a factor. However, from a business perspective, the variance in counts (max difference of ~80 cases) is not large enough to warrant seasonal operational changes.
+
+
+
+Hypothesis 6: No-show rates will vary significantly by age group. Younger patients (e.g., 20s-30s) may show higher no-show rates due to busy schedules or lower perceived urgency, while older patients may be more diligent or, conversely, have higher no-show rates due to mobility issues.
+
+Method: Aggregated the no-show data by defined age groups and calculated the percentage of non-attendance for each. A bar chart with the plasma color scale was used to visualize the disparity in attendance behavior across the lifespan.
+
+```{r}
+# 1. Aggregate no-show data by age group
+age_noshow_analysis <- past_appointments %>%
+  # Keep only 'did not attend' data for analysis
+  group_by(age_group, status) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(age_group) %>%
+  # Calculate no-show rate (%) within each age group
+  mutate(noshow_rate = (count / sum(count)) * 100) %>%
+  filter(status == "did not attend")
+
+# 2. Visualize with a bar chart
+ggplot(age_noshow_analysis, aes(x = age_group, y = noshow_rate, fill = age_group)) +
+  geom_col(alpha = 0.8, width = 0.6) +
+  geom_text(aes(label = sprintf("%.1f%%", noshow_rate)), 
+            vjust = -0.5, size = 4, fontface = "bold") +
+  scale_fill_viridis_d(option = "plasma") +  # Discrete color scale for age groups
+  scale_y_continuous(limits = c(0, max(age_noshow_analysis$noshow_rate) * 1.2)) +
+  labs(title = "No-show Rate by Age Group",
+       subtitle = "Identifying age groups with the highest appointment non-attendance",
+       x = "Age Group", 
+       y = "No-show Rate (%)") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(size = 10, face = "bold", angle = 45, hjust = 1),
+    plot.title = element_text(size = 14, face = "bold"))
+```
+
+Observation: The no-show rate across all age groups is remarkably consistent, staying within a narrow range of 5.4% to 6.5%. The highest no-show rate was observed in the 40-44 age group (6.5%), while the lowest was in the 15-19 age group (5.4%). Most other groups, including the elderly (80+), maintain a steady rate around 6.0%.
+
+Conclusion: Age is not a primary driver of no-show behavior in this dataset. Since no specific age group shows a dramatic spike, implementing age-based restrictive policies or targeted reminders may offer limited business utility.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
