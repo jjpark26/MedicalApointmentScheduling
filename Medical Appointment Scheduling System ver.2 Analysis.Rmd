@@ -31,9 +31,15 @@ past_appointments <- readRDS("data/cleaned_past_appointments.rds")
 Analysis
 
 
-Hypothesis 1: No-show rates fluctuate depending on the appointment hour. Unlike 'cancelled' appointments, 'did not attend' cases represent a direct loss of revenue, making it critical to identify high-risk time periods.
+Revenue Loss Analysis
+The primary goal of this section is to identify the root causes of no-shows and quantify the risk factors that lead to unutilized clinic capacity. By analyzing patient demographics and behavioral patterns, we aim to develop a targeted intervention strategy to minimize revenue leakage caused by missed appointments.
 
-Method: Extracted the hour from appointment timestamps and calculated both the absolute count of 'did not attend' cases and their relative percentage to the total dataset.
+
+Hypothesis 1: 
+No-show rates fluctuate depending on the appointment hour. Unlike 'cancelled' appointments, 'did not attend' cases represent a direct loss of revenue, making it critical to identify high-risk time periods.
+
+Method: 
+Extracted the hour from appointment timestamps and calculated both the absolute count of 'did not attend' cases and their relative percentage to the total dataset.
 
 ```{r Analysis 1 Time}
 library(tidyverse)
@@ -67,18 +73,22 @@ ggplot(no_show_summary, aes(x = factor(hour), y = no_show_count)) +
        y = "Number of No-show Cases") +
   theme_minimal()
 ```
-Observation: No-show counts peak at 14:00 (738 cases), but this represents only 0.7% of the total dataset, which is a mere 0.1%p difference from the hourly average (0.6%).
+Observation: 
+No-show counts peak at 14:00 (738 cases), but this represents only 0.7% of the total dataset, which is a mere 0.1%p difference from the hourly average (0.6%).
 
-Conclusion: Appointment time is not a decisive factor in no-show behavior.
-
-
-
-
+Conclusion: 
+Appointment time is not a decisive factor in no-show behavior.
 
 
-Hypothesis 2: Certain days of the week (e.g., Mondays or Fridays) may have higher no-show rates due to long weekends or scheduling habits.
 
-Method: Extracted day names from appointment dates and aggregated "did not attend" cases.
+
+
+
+Hypothesis 2: 
+Certain days of the week (e.g., Mondays or Fridays) may have higher no-show rates due to long weekends or scheduling habits.
+
+Method: 
+Extracted day names from appointment dates and aggregated "did not attend" cases.
 ```{r Analysis 2 Day of Week}
 # Feature Engineering: Extract day of the week
 past_appointments <- past_appointments %>%
@@ -101,17 +111,21 @@ ggplot(no_show_by_day, aes(x = day_of_week, y = no_show_count)) +
   theme_minimal(base_size = 14) +
   theme(panel.grid.major.x = element_blank())
 ```
-Observation: No-show cases remain highly consistent from Monday to Friday, ranging between 1,297 and 1,352 incidents. Tuesday recorded the highest volume (1,352), but only by a narrow margin.
+Observation: 
+No-show cases remain highly consistent from Monday to Friday, ranging between 1,297 and 1,352 incidents. Tuesday recorded the highest volume (1,352), but only by a narrow margin.
 
-Conclusion: The Day of the Week is not a decisive factor for patient absenteeism.
+Conclusion: 
+The Day of the Week is not a decisive factor for patient absenteeism.
 
 
 
 
 
-Hypothesis 3: No-show rates will vary by season due to weather conditions or holiday periods, with certain seasons showing higher absenteeism.
+Hypothesis 3: 
+No-show rates will vary by season due to weather conditions or holiday periods, with certain seasons showing higher absenteeism.
 
-Method: Grouped months into four seasons and calculated the no-show rate, total counts, and the daily average of no-show cases for each season.
+Method: 
+Grouped months into four seasons and calculated the no-show rate, total counts, and the daily average of no-show cases for each season.
 
 ```{r noshow_rate-seasonal}
 # 1. Create season variable based on appointment month
@@ -170,18 +184,23 @@ ggplot(season_final_analysis, aes(x = season, y = rate, fill = season)) +
 
 ```
 
-Observation: The no-show rate is remarkably stable across all seasons, ranging from 5.6% to 6.3%. Spring recorded the highest rate (6.3%) with an average of 2.7 no-shows per day, while Winter showed the lowest (5.6%) with 2.4 per day. The maximum variance between seasons is only 0.7%p.
+Observation: 
+The no-show rate is remarkably stable across all seasons, ranging from 5.6% to 6.3%. Spring recorded the highest rate (6.3%) with an average of 2.7 no-shows per day, while Winter showed the lowest (5.6%) with 2.4 per day. The maximum variance between seasons is only 0.7%p.
 
-Conclusion: Seasonality is not a decisive factor in no-show behavior.
+Conclusion: 
+Seasonality is not a decisive factor in no-show behavior.
 
 
 
-Hypothesis 4: The probability of a no-show will vary significantly depending on the specific combination of the season and the appointment hour.
+Hypothesis 4: 
+The probability of a no-show will vary significantly depending on the specific combination of the season and the appointment hour.
 
-Method1: Performed a Chi-squared test to statistically verify whether the likelihood of a no-show is independent of the season-hour combination.
-Method2: Created a high-contrast heatmap to visualize which specific time-season intersections show the highest no-show rates.
+Method1: 
+Performed a Chi-squared test to statistically verify whether the likelihood of a no-show is independent of the season-hour combination.
+Method2: 
+Created a high-contrast heatmap to visualize which specific time-season intersections show the highest no-show rates.
 
-```{r}
+```{r noshow_rate-Seasonal and time}
 # 1. Statistical Testing
 table_season_status <- table(past_appointments$season, past_appointments$status)
 chisq_result <- chisq.test(table_season_status)
@@ -226,17 +245,21 @@ print(seasonal_hourly_noshow_plot)
 ggsave("seasonal_hourly_noshow_analysis.png", seasonal_hourly_noshow_plot, width = 10, height = 6)
 ```
 
-Observation: The Chi-squared test confirms a statistically significant relationship (p-value: 0.00145) between season/hour and no-show occurrences. The heatmap clearly identifies Spring at 14:00 as the most critical peak with 211 cases, followed by Autumn at 11:00 (195 cases) and Spring at 12:00 (193 cases). In contrast, the lowest volume was recorded in Winter at 17:00 (130 cases).
+Observation: 
+The Chi-squared test confirms a statistically significant relationship (p-value: 0.00145) between season/hour and no-show occurrences. The heatmap clearly identifies Spring at 14:00 as the most critical peak with 211 cases, followed by Autumn at 11:00 (195 cases) and Spring at 12:00 (193 cases). In contrast, the lowest volume was recorded in Winter at 17:00 (130 cases).
 
-Conclusion (Final): The hypothesis is statistically supported (p=0.00145), proving that timing is a factor. However, from a business perspective, the variance in counts (max difference of ~80 cases) is not large enough to warrant seasonal operational changes.
+Conclusion (Final): 
+The hypothesis is statistically supported (p=0.00145), proving that timing is a factor. However, from a business perspective, the variance in counts (max difference of ~80 cases) is not large enough to warrant seasonal operational changes.
 
 
 
-Hypothesis 6: No-show rates will vary significantly by age group. Younger patients (e.g., 20s-30s) may show higher no-show rates due to busy schedules or lower perceived urgency, while older patients may be more diligent or, conversely, have higher no-show rates due to mobility issues.
+Hypothesis 6: 
+No-show rates will vary significantly by age group. Younger patients (e.g., 20s-30s) may show higher no-show rates due to busy schedules or lower perceived urgency, while older patients may be more diligent or, conversely, have higher no-show rates due to mobility issues.
 
-Method: Aggregated the no-show data by defined age groups and calculated the percentage of non-attendance for each. A bar chart with the plasma color scale was used to visualize the disparity in attendance behavior across the lifespan.
+Method: 
+Aggregated the no-show data by defined age groups and calculated the percentage of non-attendance for each. A bar chart with the plasma color scale was used to visualize the disparity in attendance behavior across the lifespan.
 
-```{r}
+```{r noshow_rate-Age group}
 # 1. Aggregate no-show data by age group
 age_noshow_analysis <- past_appointments %>%
   # Keep only 'did not attend' data for analysis
@@ -265,15 +288,281 @@ ggplot(age_noshow_analysis, aes(x = age_group, y = noshow_rate, fill = age_group
     plot.title = element_text(size = 14, face = "bold"))
 ```
 
-Observation: The no-show rate across all age groups is remarkably consistent, staying within a narrow range of 5.4% to 6.5%. The highest no-show rate was observed in the 40-44 age group (6.5%), while the lowest was in the 15-19 age group (5.4%). Most other groups, including the elderly (80+), maintain a steady rate around 6.0%.
+Observation: 
+The no-show rate across all age groups is remarkably consistent, staying within a narrow range of 5.4% to 6.5%. The highest no-show rate was observed in the 40-44 age group (6.5%), while the lowest was in the 15-19 age group (5.4%). Most other groups, including the elderly (80+), maintain a steady rate around 6.0%.
 
-Conclusion: Age is not a primary driver of no-show behavior in this dataset. Since no specific age group shows a dramatic spike, implementing age-based restrictive policies or targeted reminders may offer limited business utility.
-
-
-
-
+Conclusion: 
+Age is not a primary driver of no-show behavior in this dataset. Since no specific age group shows a dramatic spike, implementing age-based restrictive policies or targeted reminders may offer limited business utility.
 
 
+Hypothesis 7: 
+As the interval between the booking date and the actual appointment date increases, the probability of a no-show will also increase. Patients who schedule far in advance may forget the appointment or lose the sense of urgency.
+
+Method: 
+Categorized the scheduling_interval into 5-day increments (up to 30 days) and analyzed the trend using a line chart. This visualization highlights how the commitment to an appointment decays over time.
+
+```{r noshow_rate-Scheduling Interval}
+# 1. Prepare data: categorize scheduling interval into 5-day groups
+interval_analysis <- past_appointments %>%
+  mutate(
+    interval_group = cut(
+      scheduling_interval, 
+      breaks = seq(0, 30, by = 5),        # 0-5, 6-10, ...
+      include.lowest = TRUE,
+      labels = c("0-5 days", "6-10 days", "11-15 days", "16-20 days", "21-25 days", "26-30 days")
+    )
+  ) %>%
+  group_by(interval_group) %>%
+  summarise(
+    total_appts = n(),                       # Total appointments per interval
+    noshow_count = sum(status == "did not attend"),
+    noshow_rate = (noshow_count / total_appts) * 100,
+    .groups = 'drop'
+  )
+
+# 2. Visualize with bar chart
+ggplot(interval_analysis, aes(x = interval_group, y = noshow_rate, group = 1)) +
+  geom_col(fill = "#2A9D8F", alpha = 0.8, width = 0.6) +
+  geom_text(aes(label = paste0(sprintf("%.1f%%", noshow_rate), 
+                               "\n(", noshow_count, "/", total_appts, ")")),
+            vjust = -0.5, fontface = "bold", size = 4) +
+  scale_y_continuous(limits = c(0, max(interval_analysis$noshow_rate) * 1.3)) +
+  labs(title = "No-show Rate by Scheduling Interval",
+       subtitle = "Shows percentage and actual no-show count within each interval group",
+       x = "Days Between Booking and Appointment",
+       y = "No-show Rate (%)") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 11),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+
+```
+Observation: 
+The no-show rate remains remarkably stable regardless of the scheduling interval, fluctuating minimally between 5.7% and 6.3%. Even for appointments booked more than 25 days in advance, the rate (6.2%) is nearly identical to those booked within 5 days (6.0%). The highest volume of no-shows is concentrated in the 0-5 days group (3,418 patients), reflecting the overall high volume of short-term bookings.
+
+Conclusion: 
+The hypothesis that longer scheduling intervals lead to higher no-show rates is not supported. Patient commitment does not appear to decay over a 30-day window, suggesting that the current booking system is effective in maintaining patient engagement regardless of the wait time.
+
+
+
+Hypothesis 8:
+A patient’s past attendance behavior will be the strongest predictor of their future no-show probability. Specifically, patients who have previously missed an appointment ("did not attend") are significantly more likely to repeat that behavior in subsequent bookings.
+
+Method: 
+Created a cumulative no-show counter (past_no_show_count) for each patient. Patients were categorized into three groups: "First time (0)", "1 past no-show", and "2+ past no-shows" to analyze how the repetition of non-attendance affects current no-show rates.
+
+```{r noshow_rate-noshow_history1}
+# 1. Calculate each patient's past no-show history
+past_appointments <- past_appointments %>%
+  arrange(patient_id, appointment_date, appointment_time) %>%   # Sort by patient & time
+  group_by(patient_id) %>%
+  mutate(
+    # Create flag: 1 if 'did not attend', else 0
+    is_noshow = if_else(status == "did not attend", 1, 0),
+    # Cumulative past no-show count (exclude current appointment)
+    past_no_show_count = cumsum(is_noshow) - is_noshow
+  ) %>%
+  ungroup() %>%
+  select(-is_noshow)  # remove temporary flag column
+
+# 2. Check results for one patient
+past_appointments %>%
+  select(patient_id, appointment_date, status, past_no_show_count) %>%
+  filter(patient_id == head(unique(patient_id), 1))  # example for first patient
+
+```
+
+
+
+```{r noshow_rate-noshow_history2}
+#Categorize patients by past no-show history
+history_impact <- past_appointments %>%
+  mutate(
+    history_group = case_when(
+      past_no_show_count == 0 ~ "First time (0)",        # No previous no-show
+      past_no_show_count == 1 ~ "1 past no-show",        # 1 previous no-show
+      past_no_show_count >= 2 ~ "2+ past no-shows"      # 2 or more previous no-shows
+    )
+  ) %>%
+  group_by(history_group) %>%
+  summarise(
+    total_appointments = n(),                          # Total appointments in the group
+    current_no_show = sum(status == "did not attend"), # Number of current no-shows
+    current_noshow_rate = (current_no_show / total_appointments) * 100, # % of no-shows
+    .groups = "drop"
+  )
+
+
+```
+
+
+
+```{r noshow_rate-noshow_history3 Graph}
+# Visualize impact of past no-show history on current no-show rate
+ggplot(history_impact, 
+       aes(x = factor(history_group, levels = c("First time (0)", "1 past no-show", "2+ past no-shows")),
+           y = current_noshow_rate, 
+           fill = history_group)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = sprintf("%.2f%%", current_noshow_rate)), 
+            vjust = -0.5, size = 5, fontface = "bold") +
+  scale_fill_manual(values = c("First time (0)" = "#264653", 
+                               "1 past no-show" = "#F4A261", 
+                               "2+ past no-shows" = "#E76F51")) +
+  # y-axis range slightly extended to emphasize differences
+  coord_cartesian(ylim = c(min(history_impact$current_noshow_rate) * 0.9, 
+                           max(history_impact$current_noshow_rate) * 1.1)) +
+  labs(title = "Impact of Past No-Show History on Current No-Shows",
+       x = "Cumulative Past No-Shows", 
+       y = "Current No-Show Rate (%)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+Observation: 
+The current no-show rate shows a positive correlation with past no-show history. Patients with no prior no-shows recorded a rate of 5.92%, while those with 2 or more past no-shows increased to 6.18%.
+
+Conclusion: 
+The hypothesis is supported, as the no-show probability increases with previous non-attendance. However, the difference is relatively small (0.26%p), suggesting that while past behavior is an indicator, it is not a "volatile" risk factor in this specific patient population.
+
+
+Hypothesis 9: 
+New patients, who have not yet established a relationship or trust with the clinic, will exhibit a higher no-show rate than returning patients who have successfully attended at least one prior appointment.
+
+Method: 
+Identified each patient's "First Attended Date" to distinguish between "New" (before their first successful visit) and "Returning" (after their first successful visit). This longitudinal approach excludes the first successful visit day itself to focus strictly on the behavior before and after trust is established.
+
+```{r noshow_rate-New or Returning by appointments number}
+# Determine whether new or returning patients have higher no-show rates
+
+# 1. First attended date per patient
+first_attended_dates <- past_appointments %>%
+  filter(status == "attended") %>%
+  group_by(patient_id) %>%
+  summarise(first_attended_date = min(appointment_date), .groups = "drop")
+
+# 2. Define patient type and no-show flag
+refined_patient_analysis <- past_appointments %>%
+  left_join(first_attended_dates, by = "patient_id") %>%
+  mutate(
+    patient_type = case_when(
+      is.na(first_attended_date) | appointment_date < first_attended_date ~ "New",
+      appointment_date > first_attended_date ~ "Returning",
+      TRUE ~ NA_character_  # exclude the first attended day itself
+    ),
+    is_noshow = status == "did not attend"
+  ) %>%
+  filter(!is.na(patient_type)) %>%
+  group_by(patient_type) %>%
+  summarise(
+    total_appointments = n(),
+    noshow_rate = mean(is_noshow) * 100,
+    .groups = "drop"
+  )
+
+# 3. Visualization
+ggplot(refined_patient_analysis,
+       aes(x = patient_type, y = noshow_rate, fill = patient_type)) +
+  geom_col(width = 0.5, alpha = 0.85) +
+  geom_text(aes(label = sprintf("%.1f%%", noshow_rate)),
+            vjust = -0.5, size = 6, fontface = "bold") +
+  scale_fill_manual(values = c("New" = "#E76F51", "Returning" = "#264653")) +
+  scale_y_continuous(limits = c(0, max(refined_patient_analysis$noshow_rate) * 1.3)) +
+  labs(
+    title = "No-Show Rate by Patient Type",
+    subtitle = "Comparison of no-show rates between first-time and returning patients",
+    x = "Patient Type",
+    y = "No-Show Rate (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(size = 12, face = "bold"),
+    title = element_text(size = 14, face = "bold")
+  )
+
+```
+
+Observation:
+This analysis tracks the behavioral shift of individual patients. New patients (pre-first successful visit) show a high no-show rate of 26.4%. However, once the same patients successfully complete their first visit and transition to Returning patients, their no-show rate plummets to 6.0%.
+
+Conclusion:
+The data proves that "The First Visit" is the most critical milestone. The dramatic drop from 26.4% to 6.0% suggests that attendance is a learned behavior and that initial engagement is the key to long-term patient retention.
+
+Suggestion:
+Tiered Reminder System - Given that new patients are 4.4 times more likely to no-show than returning ones, the clinic should implement a high-intensity reminder system (e.g., personalized phone calls or interactive maps) specifically for first-time bookers.
+
+
+
+
+Hypothesis 10: 
+As the time gap between the booking date and the appointment date (Scheduling Interval) increases, the no-show rate will also increase.
+
+Method: 
+Grouping: Categorized scheduling_interval into five groups (0-1 day to 30+ days).
+
+Calculation: Calculated the no-show rate (%) for each group to identify the correlation between wait time and attendance.
+
+Visualization: Used bar charts to visualize the increase in no-show probability as the lead time grows.
+
+
+```{r}
+# 1. Calculate no-show rate based on the entire dataset
+noshow_trend <- past_appointments %>%
+  # Define status values required for analysis (Attended vs No-show)
+  # Cancelled appointments can be included or excluded depending on analysis purpose.
+  # Here, they are excluded to focus on pure no-show rate.
+  filter(status %in% c("attended", "did not attend")) %>% 
+  mutate(
+    # Create binary indicator for no-show
+    is_noshow = ifelse(status == "did not attend", 1, 0),
+    
+    # Categorize scheduling intervals into meaningful groups
+    interval_group = case_when(
+      scheduling_interval <= 1  ~ "0-1 Day (Urgent)",
+      scheduling_interval <= 7  ~ "2-7 Days (Short)",
+      scheduling_interval <= 14 ~ "8-14 Days (Medium)",
+      scheduling_interval <= 30 ~ "15-30 Days (Long)",
+      TRUE                      ~ "Over 30 Days"
+    ),
+    # Ensure interval groups have a logical order for plotting
+    interval_group = factor(interval_group, 
+                            levels = c("0-1 Day (Urgent)", "2-7 Days (Short)", 
+                                       "8-14 Days (Medium)", "15-30 Days (Long)", 
+                                       "Over 30 Days"))
+  ) %>%
+  # Aggregate data by interval group
+  group_by(interval_group) %>%
+  summarise(
+    total_appointments = n(),           # Total number of appointments in the group
+    noshow_count = sum(is_noshow),      # Number of no-shows
+    noshow_rate = (noshow_count / total_appointments) * 100, # No-show rate in %
+    .groups = 'drop'
+  )
+
+# 2. Visualize the trend of no-show rate by scheduling interval
+ggplot(noshow_trend, aes(x = interval_group, y = noshow_rate, fill = interval_group)) +
+  geom_col(show.legend = FALSE) +
+  geom_text(aes(label = sprintf("%.1f%%", noshow_rate)), vjust = -0.5, size = 5, fontface = "bold") +
+  scale_fill_brewer(palette = "Reds") +
+  labs(
+    title = "No-show Rate by Appointment Scheduling Interval",
+    subtitle = "Does longer wait time increase the likelihood of patients not showing up?",
+    x = "Days Between Scheduling and Appointment",
+    y = "No-show Rate (%)"
+  ) +
+  theme_minimal() +
+  ylim(0, max(noshow_trend$noshow_rate) + 10) # Add space above bars for labels
+
+```
+
+Observation: 
+The no-show rate remains remarkably stable (around 7.1% – 7.2%) regardless of the wait time from 0 to 30 days.
+
+Conclusion: 
+The length of the wait time is not a primary driver of no-shows.
 
 
 
@@ -288,22 +577,320 @@ Conclusion: Age is not a primary driver of no-show behavior in this dataset. Sin
 
 
 
+Multivariate Analysis: Identifying Key Drivers of No-shows
+
+Objective:
+To determine the relative impact of various factors on the probability of a no-show. By using Logistic Regression, we aim to identify which variables remain statistically significant when all other factors are held constant.
+
+Methodology:
+
+Model Type: Binomial Logistic Regression (Generalized Linear Model).
+
+Target Variable: is_noshow (Binary).
+
+Independent Variables: Patient type (New/Returning), scheduling interval, age, sex, weekday, and hour.
+
+Approach: We calculated the Odds Ratio for each variable to quantify how much each factor increases or decreases the likelihood of a no-show.
+
+```{r}
+# Create the first attended date for each patient
+first_attended_dates <- past_appointments %>%
+  filter(status == "attended") %>%
+  group_by(patient_id) %>%
+  summarise(
+    first_attended_date = min(appointment_date),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+# Prepare the dataset for modeling
+model_data <- past_appointments %>%
+  left_join(first_attended_dates, by = "patient_id") %>%
+  mutate(
+    # Define patient type based on first attended date
+    patient_type = case_when(
+      is.na(first_attended_date) |
+        appointment_date < first_attended_date ~ "New Patient",
+      appointment_date > first_attended_date ~ "Returning Patient",
+      TRUE ~ NA_character_
+    ),
+    # Create binary target variable for no-show
+    is_noshow = status == "did not attend",
+
+    # Derived variables
+    weekday = wday(appointment_date, label = TRUE),  # Day of the week
+    hour = hour(appointment_time)                    # Appointment hour
+  ) %>%
+  # Select relevant features for modeling
+  select(
+    is_noshow,
+    patient_type,
+    scheduling_interval,
+    weekday,
+    hour,
+    age,
+    sex,
+    insurance
+  ) %>%
+  # Exclude rows with missing patient type
+  filter(!is.na(patient_type)) %>%
+  drop_na()  # Drop remaining missing values
+
+```
+
+
+
+```{r}
+# Logistic Regression to predict No-show
+logit_model <- glm(
+  is_noshow ~ patient_type +      # New vs Returning Patient
+    scheduling_interval +         # Days between scheduling and appointment
+    age +                         # Patient age
+    sex +                         # Patient sex
+    weekday +                     # Day of the week
+    hour,                         # Appointment hour
+  data = model_data,
+  family = binomial               # Logistic regression
+)
+
+# Display model summary
+summary(logit_model)
+
+```
+Observation:
+The logistic regression model identifies "Patient Type (Returning)" as the only statistically significant predictor of no-show behavior ($p < 0.001$). Other factors, including scheduling interval, age, gender, and appointment time, showed no significant impact on attendance when controlled for patient type. Specifically, the negative coefficient for returning patients (-1.738) indicates a dramatic decrease in no-show probability compared to new patients.
+
+Suggestion:
+Instead of broad, clinic-wide no-show policies, management should adopt a 'New Patient Concierge' approach. By focusing 100% of reminder resources on first-time bookers, the clinic can achieve maximum efficiency since other variables like age or appointment hour do not fundamentally change a patient's likelihood of missing their appointment.
 
 
 
 
 
+Revenue Recovery Strategy
+
+Unlike no-shows, cancellations provide a window of opportunity for the clinic to re-fill the vacant slots. The goal of this analysis is to identify "Golden Slots"—specific days and times when cancelled appointments are most successfully re-filled—and to propose a data-driven strategy for recycling these gaps.
 
 
 
 
 
+Objective:
+The primary goal of this analysis is to evaluate the clinic's efficiency in recycling cancelled appointment slots. By quantifying the Recycling Rate, we aim to identify operational gaps where cancelled slots remain "Wasted" and determine the "Golden Time" (Lead Time) required to successfully re-fill a vacancy with another patient. Ultimately, this provides a data-driven foundation for a proactive Waitlist Management System to minimize revenue leakage.
+
+```{r}
+# 1. Prepare data to analyze how often cancelled appointment slots are refilled
+recovery_analysis <- past_appointments %>%
+  mutate(
+    # Create time-of-day segments to identify operational patterns
+    app_hour = hour(appointment_time),
+    time_slot = case_when(
+      app_hour < 12 ~ "Morning (08-12)",
+      app_hour >= 12 & app_hour < 17 ~ "Afternoon (12-17)",
+      TRUE ~ "Evening (17-)"
+    ),
+    
+    # Standardize weekday order for consistent reporting
+    day_of_week = factor(day_of_week, 
+                         levels = c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"))
+  ) %>%
+  
+  # Identify whether cancelled slots were successfully refilled
+  group_by(appointment_date, slot_id) %>%
+  mutate(
+    is_cancelled = any(status %in% c("cancelled", "did not attend")),
+    is_refilled = is_cancelled & any(status == "attended") 
+  ) %>%
+  ungroup()
+```
 
 
 
+```{r}
+# 1. Prepare dataset for waiting time comparison (using past_appointments)
+comparison_waiting <- past_appointments %>%
+  filter(!is.na(status)) %>%   # Exclude records with missing status
+  mutate(
+    # Classify patients: 'Loyal' if attended, 'Churned' otherwise (based on previous analysis criteria)
+    group = ifelse(status == "attended", "Loyal", "Churned"),
+    
+    # Ensure consistent factor levels for plotting or analysis
+    group = factor(group, levels = c("Loyal", "Churned"))
+  )
+
+```
 
 
 
+```{r}
+# 1. Extract list of slot IDs that were cancelled
+cancelled_slots_list <- past_appointments %>%
+  filter(status == "cancelled") %>%
+  select(slot_id) %>%
+  distinct()
+
+# 2. Check if these cancelled slots were eventually attended (recycled)
+recycling_analysis <- past_appointments %>%
+  filter(slot_id %in% cancelled_slots_list$slot_id) %>%
+  group_by(slot_id) %>%
+  summarise(
+    # Consider a slot successfully recycled if at least one 'attended' appointment exists
+    is_recycled = any(status == "attended"),
+    .groups = 'drop'
+  )
+
+# 3. Summarize overall recycling rate
+recycling_summary <- recycling_analysis %>%
+  summarise(
+    total_cancelled_slots = n(),              # Total number of cancelled slots
+    recycled_count = sum(is_recycled),        # Number of cancelled slots that were filled by other patients
+    recycling_rate = (recycled_count / total_cancelled_slots) * 100  # Overall recycling rate in %
+  )
+
+# Display recycling summary
+print(recycling_summary)
+
+```
+
+Observation: Out of 16,927 cancelled slots, only 6,069 were successfully re-filled by other patients, resulting in an overall recycling rate of 35.9%.
+
+Conclusion: More than 64% of cancelled appointments remain "Wasted," directly translating to lost revenue. This indicates a significant opportunity to improve clinic capacity through a more aggressive waitlist management system.
+
+```{r}
+# 1. Create detailed slot-level dataset including recycling status
+slot_features <- past_appointments %>%
+  filter(slot_id %in% cancelled_slots_list$slot_id) %>%
+  group_by(slot_id) %>%
+  summarise(
+    is_recycled = any(status == "attended"),      # Whether the cancelled slot was eventually filled
+    # Extract basic slot information (at the time of cancellation)
+    appointment_time = first(appointment_time),
+    day_of_week = first(day_of_week),
+    insurance = first(insurance),
+    .groups = 'drop'
+  ) %>%
+  mutate(
+    # Categorize slots into 'Recycled' or 'Wasted'
+    status_group = if_else(is_recycled, "Recycled", "Wasted")
+  )
+
+# 2. Analyze recycling failures by weekday
+dow_waste_analysis <- slot_features %>%
+  group_by(day_of_week, status_group) %>%
+  summarise(count = n(), .groups = 'drop') %>%
+  group_by(day_of_week) %>%
+  mutate(waste_rate = (count / sum(count)) * 100) %>%
+  filter(status_group == "Wasted")  # Focus only on unrecycled slots
+
+print("--- [1] Recycling failure rate by weekday ---")
+print(dow_waste_analysis)
+
+# 3. Distribution of recycling failures by hour (prepare for visualization)
+# Round appointment time to nearest hour for analysis
+slot_features <- slot_features %>%
+  mutate(hour = as.numeric(substr(as.character(appointment_time), 1, 2)))
+
+hour_waste_plot <- ggplot(slot_features, aes(x = hour, fill = status_group)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(
+    title = "Proportion of Recycled vs Wasted Slots by Hour",
+    x = "Appointment Hour", y = "Proportion (%)",
+    fill = "Status"
+  ) +
+  theme_minimal()
+
+print(hour_waste_plot)
+
+# 4. Analyze recycling rate based on lead time (time between scheduling and appointment)
+recycling_lead_time <- past_appointments %>%
+  filter(slot_id %in% cancelled_slots_list$slot_id) %>%
+  group_by(slot_id) %>%
+  summarise(
+    # Calculate lead time in days (difference between scheduling date and appointment date)
+    lead_time_days = as.numeric(first(appointment_date) - first(scheduling_date)),
+    is_recycled = any(status == "attended"),   # Was the slot recycled
+    .groups = 'drop'
+  )
+
+# Compute recycling rate by lead time group
+lead_time_analysis <- recycling_lead_time %>%
+  mutate(
+    lead_group = case_when(
+      lead_time_days == 0 ~ "0 days (same day)",
+      lead_time_days <= 2 ~ "1-2 days",
+      lead_time_days <= 7 ~ "3-7 days",
+      TRUE ~ "More than 7 days"
+    )
+  ) %>%
+  group_by(lead_group) %>%
+  summarise(
+    total_slots = n(),
+    recycled_count = sum(is_recycled),
+    recycling_rate = (recycled_count / total_slots) * 100
+  )
+
+print(lead_time_analysis)
+
+```
+
+
+Observation: 
+The "Waste Rate" is remarkably consistent across weekdays, ranging from 63.5% (Tuesday) to 64.9% (Wednesday). Hour-by-hour analysis also shows that the proportion of wasted slots remains high (over 60%) throughout the entire day.
+
+Conclusion: 
+There is no specific "safe" day or hour. The clinic consistently fails to fill about two-thirds of its cancelled spots regardless of the time. Operational improvements should be implemented system-wide rather than targeting specific days.
+
+
+
+```{r}
+
+# Visualization of recycling rate by lead time with detailed counts and percentages
+ggplot(lead_time_analysis, aes(x = lead_group, y = recycling_rate, fill = lead_group)) +
+  geom_bar(stat = "identity", alpha = 0.8) +
+  geom_text(aes(label = paste0(recycled_count, " / ", total_slots, "\n(", round(recycling_rate, 1), "%)")), 
+            vjust = -0.3,      
+            lineheight = 0.9,  
+            fontface = "bold", 
+            size = 4.5) +      
+  scale_y_continuous(limits = c(0, 50)) + 
+  labs(
+    title = "Slot Recycling Efficiency by Lead Time",
+    subtitle = "3-7 Days window shows both the highest volume and recovery rate",
+    x = "Lead Time (Days from Scheduling to Cancellation)",
+    y = "Recycling Rate (%)",
+    fill = "Lead Time Group"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 14),
+    axis.title = element_text(face = "bold")
+  )
+```
+
+Observation:
+The highest recycling rate occurs when appointments are cancelled 3-7 days in advance (39.6%). Interestingly, if the cancellation happens too early (More than 7 days), the rate drops slightly to 33.5%.
+
+Conclusion: 
+3 to 7 days is the "Golden Window" for re-filling slots. Cancellations within this period give the clinic enough time to find a replacement without being so far in the future that new patients haven't started looking for slots yet.
+
+Strategic Suggestions: Optimizing Revenue Recovery
+1. Capitalize on the "Golden Window" (3-7 Days Lead Time)
+
+Action 1: Launch an automated notification system for waitlisted patients when slots open up 3–7 days before the appointment.
+
+Rationale: This window represents the highest recovery potential with 2,434 successful refills and a peak recycling rate of 39.6%.
+
+Action 2: Introduce "Early Cancellation Incentives" to encourage cancellations at least 3 days in advance.
+
+Rationale: The recovery rate drops to 33.9% for late cancellations (1-2 days), as there is insufficient time to find replacement patients.
+
+Action 3: Deploy a "Quick-Fill" priority booking feature for time slots where the waste rate exceeds 60%.
+
+Rationale: Since approximately two-thirds of cancelled slots are consistently wasted across all hours, a system-wide automated matching tool is essential to minimize idle clinic capacity.
 
 
 
