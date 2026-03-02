@@ -9,6 +9,22 @@ output: html_document
 # Description: Analysis of patient no-show patterns and seasonal trends.
 
 
+Optimizing Hospital Operational Efficiency
+Strategy Development through Patient Scheduling Data Analysis (2015-2024)
+
+1. Executive Summary
+This project leverages a comprehensive medical appointment dataset to address a critical challenge in healthcare management: the optimization of clinical resource utilization. By analyzing 10 years of appointment data (2015–2024), this study identifies the root causes of 'No-shows' and 'Cancellations' and proposes data-driven strategies to maximize the "Fill Rate" of available time slots. The ultimate goal is to transform operational leaks into revenue opportunities by understanding patient behavior and enhancing retention.
+
+
+2. Problem Statement: Resource Allocation & Patient Dynamics
+The operational excellence of a healthcare facility depends on how precisely 'Time Slots' (Resources) are synchronized with 'Patient Appointments' (Demand). Any misalignment results in significant operational leakage.
+
+The Resource Leak (Slot Inventory): Clinical hours are perishable assets. 'No-shows' and 'Unfilled Cancellations' create 'Dead Time,' leading to direct revenue loss and extended waiting lists for other patients.
+
+Analyzing Behavioral Drivers (Patient Behavior): Scheduling gaps are driven by specific patient behaviors. By examining demographics, insurance types, and historical appointment status, we can identify the key drivers of appointment defaults.
+
+Operational Sustainability (Retention): To ensure a stable patient flow, it is crucial to understand the behavioral differences between one-time visitors and 'Loyal Patients.' By analyzing the attendance patterns and rebooking tendencies of loyal patients, we can quantify their actual impact on operational stability and develop targeted retention strategies.
+
 
 
 ```{r setup, include=FALSE}
@@ -669,7 +685,7 @@ Instead of broad, clinic-wide no-show policies, management should adopt a 'New P
 
 
 
-Revenue Recovery Strategy
+Analysis 2-1: Revenue Recovery Strategy
 
 Unlike no-shows, cancellations provide a window of opportunity for the clinic to re-fill the vacant slots. The goal of this analysis is to identify "Golden Slots"—specific days and times when cancelled appointments are most successfully re-filled—and to propose a data-driven strategy for recycling these gaps.
 
@@ -891,6 +907,154 @@ Rationale: The recovery rate drops to 33.9% for late cancellations (1-2 days), a
 Action 3: Deploy a "Quick-Fill" priority booking feature for time slots where the waste rate exceeds 60%.
 
 Rationale: Since approximately two-thirds of cancelled slots are consistently wasted across all hours, a system-wide automated matching tool is essential to minimize idle clinic capacity.
+
+
+
+
+
+
+
+Analysis 2-b: Identifying High-Response Segments
+
+
+Objective: To identify which demographics most frequently fill cancelled slots. This allows the clinic to prioritize notifications for the most "responsive" patients, maximizing the speed of recovery.
+
+
+
+Methodology: Data-Driven Target Optimization
+To maximize revenue recovery, this analysis identifies "Refill Patients"—those who successfully filled a previously cancelled slot—and profiles them by age and insurance type. By using a heatmap to pinpoint high-response segments, the study establishes a prioritized notification strategy that ensures available slots are offered first to the patients most likely to attend, minimizing idle capacity.
+
+
+```{r}
+# 1. Extract data of patients who filled slots after a cancellation ("Refill Patients")
+refill_patients <- past_appointments %>%
+  group_by(appointment_date, slot_id) %>%
+  # Keep only slots where both cancellations and attended appointments exist
+  filter(any(status %in% c("cancelled", "did not attend")) & any(status == "attended")) %>%
+  # Retain only the patients who actually attended
+  filter(status == "attended") %>%
+  ungroup()
+
+# 2. Analyze contribution of insurance types to recycled slots
+insurance_contribution <- refill_patients %>%
+  group_by(insurance) %>%
+  summarise(count = n()) %>%
+  mutate(
+    share = (count / sum(count)) * 100   # Proportion of recycled slots by insurance type
+  ) %>%
+  arrange(desc(share))  # Highest contributing insurance types first
+
+# 3. Analyze contribution of age groups to recycled slots
+age_group_contribution <- refill_patients %>%
+  group_by(age_group) %>%
+  summarise(count = n()) %>%
+  mutate(
+    share = (count / sum(count)) * 100   # Proportion of recycled slots by age group
+  ) %>%
+  arrange(desc(share))  # Highest contributing age groups first
+
+```
+
+
+```{r}
+# 4a. Visualization: Contribution of Age Groups to Refilled Slots
+ggplot(age_group_contribution, aes(x = reorder(age_group, -share), y = share, fill = age_group)) +
+  geom_bar(stat = "identity") +
+  geom_text(aes(label = paste0(round(share, 1), "%")), vjust = -0.5) +
+  labs(
+    title = "Top Age Groups Filling Cancelled Slots",
+    x = "Age Group", y = "Contribution (%)"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none") # Remove legend for cleaner visualization
+```
+
+
+```{r}
+# 4b. Visualization: Contribution of Insurance Types to Refilled Slots
+ggplot(insurance_contribution, aes(x = reorder(insurance, share), y = share, fill = insurance)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip coordinates for better readability
+  geom_text(aes(label = paste0(round(share, 1), "%")), 
+            hjust = -0.2, size = 3.5, fontface = "bold") +
+  scale_fill_viridis_d(option = "mako", guide = "none") + 
+  scale_y_continuous(limits = c(0, 35)) + 
+  labs(
+    title = "Contribution of Insurance Types to Refilled Slots",
+    subtitle = "Which insurance holders most frequently fill available slots?",
+    x = "Insurance", y = "Contribution (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 9),
+    plot.title = element_text(face = "bold", size = 14)
+  )
+```
+
+
+```{r}
+# 1. Aggregate successful slot refills by insurance type and age group
+heatmap_data <- refill_patients %>%
+  group_by(insurance, age_group) %>%
+  summarise(count = n(), .groups = "drop") %>%
+  # Calculate contribution rate (%) relative to all successful refills
+  mutate(contribution_rate = (count / sum(count)) * 100)
+
+# 2. Visualize as a heatmap
+ggplot(heatmap_data, aes(x = age_group, y = insurance, fill = contribution_rate)) +
+  geom_tile(color = "white") +  # Draw grid lines for readability
+  scale_fill_gradient(low = "#f7fbff", high = "#08306b", name = "Contribution (%)") +
+  geom_text(aes(label = round(contribution_rate, 1)), size = 3, 
+            color = ifelse(heatmap_data$contribution_rate > 2, "white", "black")) +
+  labs(
+    title = "Heatmap: Contribution of Insurance × Age Group to Refilled Slots",
+    subtitle = "Darkest cells indicate the primary target for notifications when slots become available",
+    x = "Age Group", y = "Insurance"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+```
+
+Observations : 
+The "Vitalynx Orbit" insurance holders, particularly those aged 65-79, are the most reliable segments for filling cancelled slots, contributing significantly more than any other group.
+
+Strategy: 
+Implement a Tiered Notification System. When a slot opens up in the 3-7 day window, trigger automated alerts to Vitalynx Orbit holders first, starting with the 65+ and 30-34 age groups. This data-driven prioritization will maximize the speed of slot recovery and optimize clinic revenue.
+
+
+
+
+
+
+
+Analysis 3
+
+Patient Retention & Operational Efficiency Optimization
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
