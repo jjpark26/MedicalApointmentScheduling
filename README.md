@@ -1,39 +1,108 @@
-# Medical Appointment Scheduling System Analysis
+# Medical Appointment Scheduling Analysis  
+Behavioural & Operational Data Analysis in R  
 
-This project analyzes a medical appointment dataset to identify patterns behind patient "No-shows" and provides insights for better scheduling management.
+---
 
-## 📋 Project Overview
-- **Author**: Jaehui Park
-- **Date**: February 14, 2026
-- **Objective**: To analyze historical appointment data and determine the factors influencing whether patients attend their scheduled visits.
+## Project Overview  
 
-## 🛠 Tech Stack
-- **Language**: R
-- **Reporting**: R Markdown (Pandoc)
-- **Visuals**: Interactive HTML Report
+Missed medical appointments reduce operational efficiency and create avoidable capacity loss in healthcare systems.  
 
-## 📊 Key Analysis Features
-The analysis includes the following components:
-1. **Appointment Status Summary**: Statistical breakdown of kept vs. missed appointments.
-2. **Seasonal No-show Trends**: Analysis of how different seasons (Spring, Summer, Fall, Winter) affect appointment attendance.
-3. **Patient Attendance History**: Tracking individual patient behavior and past no-show counts to predict future reliability.
+This project analyses patient attendance behaviour using structured appointment data.  
+The objective is to transform raw operational data into interpretable behavioural insights that can support data-driven decision making.
 
-## 📂 Data Outputs
-The analysis script generates the following summary files:
-- `status_summary.csv`: General statistics on appointment outcomes.
-- `season_noshow_summary.csv`: Attendance data grouped by season.
-- `no_show_counts.csv`: Frequency of no-shows per patient.
-- `past_appointments.csv`: Detailed record of patient appointment history.
+Rather than focusing purely on predictive modelling, this project emphasises structured problem framing, clean data preparation, and clear analytical interpretation.
 
-## 🚀 How to Run
-1. Clone this repository.
-2. Open the `Medical-appointment-scheduling-system--Eng-.html` file in any web browser to view the complete analysis results and visualizations.
+---
 
+## Dataset Overview  
 
-## 📚 Dataset & Attribution
-The dataset used in this project is the **Medical Appointment Scheduling System** provided by **Carolina Gonzalez Galtier** via Kaggle.
+Source: Kaggle – Medical Appointment Scheduling System  
 
-- **Data Source**: [Kaggle - Medical Appointment Scheduling System](https://www.kaggle.com/datasets/carogonzalezgaltier/medical-appointment-scheduling-system)
-- **License**: [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+The dataset contains approximately **110,000 appointment records** with multiple demographic, behavioural, and scheduling-related variables.
 
-*This project is for educational/research purposes and follows the non-commercial and attribution requirements of the original dataset creator.*
+The data structure required:
+- Cleaning inconsistent records  
+- Handling missing values  
+- Merging patient and appointment information  
+- Preparing structured variables for analysis  
+
+---
+
+## Problem Framing  
+
+Key analytical questions explored:
+
+- What factors are associated with higher no-show rates?
+- Are there identifiable behavioural patterns across demographic groups?
+- How do scheduling characteristics influence attendance outcomes?
+- What operational insights can be derived from attendance variability?
+
+The project prioritises clarity of structure and interpretability of findings.
+
+---
+
+## Analytical Approach  
+
+- Data cleaning and transformation using R  
+- Structured exploratory data analysis (EDA)  
+- Behavioural group comparison  
+- Analysis of scheduling and demographic drivers  
+- Visualisation of attendance patterns  
+
+The workflow focuses on reproducibility, logical structure, and interpretable outputs.
+
+---
+
+## Key Observations (Preliminary Findings)  
+
+Initial exploration suggests:
+
+- Certain scheduling characteristics correlate with higher no-show probability  
+- Attendance behaviour varies across demographic segments  
+- Timing-related variables may influence reliability  
+
+These insights highlight the importance of behavioural segmentation and operational optimisation strategies.
+
+---
+
+## Strategic Perspective  
+
+Although based on healthcare appointment data, the analytical structure reflects broader data analysis principles such as:
+
+- Behavioural pattern identification  
+- Group-level comparison  
+- Operational efficiency diagnostics  
+- Insight translation from raw data  
+
+The project demonstrates the ability to move from unstructured operational records to structured analytical insights.
+
+---
+
+## Technical Stack  
+
+- R  
+- Data Cleaning & Transformation  
+- Exploratory Data Analysis  
+- Data Visualisation  
+
+---
+
+## Project Status  
+
+This project is currently in progress.
+
+Next steps include:
+- Expanded behavioural segmentation  
+- Additional visual outputs  
+- Clearer framing of operational implications  
+
+---
+
+## Repository Structure  
+
+- `/data` – Raw dataset files  
+- `/scripts` – R analysis scripts  
+- `/outputs` – Generated visualisations and summaries  
+- `README.md` – Project documentation  
+
+---
