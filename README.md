@@ -1,84 +1,88 @@
 # Medical Appointment Scheduling Analysis  
-Behavioural & Operational Data Analysis in R  
+Operational & Behavioural Data Analysis in R  
 
 ---
 
-## Project Overview  
+## 1. Project Context  
 
-Missed medical appointments reduce operational efficiency and create avoidable capacity loss in healthcare systems.  
+Missed medical appointments reduce system capacity and create operational inefficiencies.  
+Understanding the behavioural and scheduling factors behind no-shows can support better resource allocation and data-informed interventions.
 
-This project analyses patient attendance behaviour using structured appointment data.  
-The objective is to transform raw operational data into interpretable behavioural insights that can support data-driven decision making.
+This project analyses structured appointment data to identify patterns in attendance behaviour and translate operational records into interpretable insights.
 
-Rather than focusing purely on predictive modelling, this project emphasises structured problem framing, clean data preparation, and clear analytical interpretation.
+The focus is on structured analysis, clarity of reasoning, and insight generation — rather than purely predictive modelling.
 
 ---
 
-## Dataset Overview  
+## 2. Dataset  
 
 Source: Kaggle – Medical Appointment Scheduling System  
 
-The dataset contains approximately **110,000 appointment records** with multiple demographic, behavioural, and scheduling-related variables.
+- ~110,000 appointment records  
+- Multiple demographic and scheduling-related variables  
+- Relational structure requiring data cleaning and preparation  
 
-The data structure required:
-- Cleaning inconsistent records  
+Core preprocessing steps included:
+- Resolving inconsistent entries  
 - Handling missing values  
-- Merging patient and appointment information  
-- Preparing structured variables for analysis  
+- Transforming categorical variables  
+- Preparing structured features for analysis  
+
+Data preparation was treated as a primary analytical task, not a preliminary step.
 
 ---
 
-## Problem Framing  
+## 3. Analytical Questions  
 
-Key analytical questions explored:
+The project explores:
 
-- What factors are associated with higher no-show rates?
-- Are there identifiable behavioural patterns across demographic groups?
-- How do scheduling characteristics influence attendance outcomes?
-- What operational insights can be derived from attendance variability?
+- Which variables are associated with higher no-show probability?
+- Do behavioural patterns differ across demographic segments?
+- How do scheduling characteristics influence attendance reliability?
+- What operational insights emerge from variability in attendance behaviour?
 
-The project prioritises clarity of structure and interpretability of findings.
+Each question was approached through structured exploration and controlled comparison.
 
 ---
 
-## Analytical Approach  
+## 4. Methodology  
 
-- Data cleaning and transformation using R  
+- Data cleaning and transformation in R  
 - Structured exploratory data analysis (EDA)  
-- Behavioural group comparison  
-- Analysis of scheduling and demographic drivers  
-- Visualisation of attendance patterns  
+- Group-level behavioural comparison  
+- Pattern identification across demographic and scheduling variables  
+- Visualisation of attendance drivers  
 
-The workflow focuses on reproducibility, logical structure, and interpretable outputs.
+The workflow prioritised reproducibility, interpretability, and logical sequencing of analysis steps.
 
 ---
 
-## Key Observations (Preliminary Findings)  
+## 5. Key Observations  
 
-Initial exploration suggests:
+Preliminary findings indicate:
 
-- Certain scheduling characteristics correlate with higher no-show probability  
+- Specific scheduling characteristics are associated with increased no-show likelihood  
 - Attendance behaviour varies across demographic segments  
-- Timing-related variables may influence reliability  
+- Timing-related variables may meaningfully influence reliability  
 
-These insights highlight the importance of behavioural segmentation and operational optimisation strategies.
-
----
-
-## Strategic Perspective  
-
-Although based on healthcare appointment data, the analytical structure reflects broader data analysis principles such as:
-
-- Behavioural pattern identification  
-- Group-level comparison  
-- Operational efficiency diagnostics  
-- Insight translation from raw data  
-
-The project demonstrates the ability to move from unstructured operational records to structured analytical insights.
+These patterns suggest opportunities for behavioural segmentation and operational optimisation.
 
 ---
 
-## Technical Stack  
+## 6. Analytical Perspective  
+
+Although grounded in healthcare data, the analytical structure reflects broader data problem-solving principles:
+
+- Translating raw operational records into structured variables  
+- Identifying behavioural variation across segments  
+- Evaluating variability and reliability patterns  
+- Framing findings in terms of decision-relevant insight  
+
+The project demonstrates the ability to move from unstructured data to structured reasoning.
+
+---
+
+## 7. Technical Stack  
 
 - R  
 - Data Cleaning & Transformation  
@@ -87,22 +91,22 @@ The project demonstrates the ability to move from unstructured operational recor
 
 ---
 
-## Project Status  
+## 8. Project Status  
 
-This project is currently in progress.
+This project is ongoing.  
 
-Next steps include:
+Planned next steps:
 - Expanded behavioural segmentation  
-- Additional visual outputs  
-- Clearer framing of operational implications  
+- Additional structured visual outputs  
+- Clearer operational framing of insights  
 
 ---
 
-## Repository Structure  
+## 9. Repository Structure  
 
 - `/data` – Raw dataset files  
 - `/scripts` – R analysis scripts  
-- `/outputs` – Generated visualisations and summaries  
-- `README.md` – Project documentation  
+- `/outputs` – Visualisations and summary outputs  
+- `README.md` – Documentation  
 
 ---
